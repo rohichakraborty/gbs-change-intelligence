@@ -14,9 +14,10 @@ type ViewKey = 'matrix' | 'heatmap' | 'stakeholder' | 'dimension' | 'high' | 'fu
 
 export function impactCellClass(e: EffectiveImpact | undefined) {
   if (!e) return { sym: '', cls: '' };
-  const confirmed = e.source === 'consultant' || e.status === 'confirmed';
-  const base = e.classification === 'impacted' ? 'yes' : e.classification === 'review' ? 'rev' : 'no';
-  return { sym: IMPACT_SYMBOL[e.classification], cls: confirmed ? base : e.classification === 'review' ? 'rev' : e.classification === 'impacted' ? 'rec' : 'no' };
+  const confirmed = e.confirmed || e.source === 'consultant';
+  if (e.classification === 'review') return { sym: IMPACT_SYMBOL.review, cls: 'rev' };
+  if (e.classification === 'impacted') return { sym: IMPACT_SYMBOL.impacted, cls: confirmed ? 'yes' : 'rec' };
+  return { sym: IMPACT_SYMBOL.not_impacted, cls: confirmed ? 'no' : 'no-rec' };
 }
 
 export function ImpactAssessment() {
@@ -122,14 +123,15 @@ export function ImpactAssessment() {
                   const a = s.assessments[k];
                   return {
                     node: <div className="cell-inner"><span className={`sym ${cls}`}>{sym}</span>{band && e?.classification === 'impacted' && <span className="tiny muted">{band[0]}</span>}
-                      {e?.source === 'consultant' && <span className="dot-override" />}{e?.conflict && <span className="dot-conflict" />}{(a?.comments.length ?? 0) > 0 && <span className="dot-review" style={{ background: 'var(--blue)' }} />}
+                      {e?.classification !== 'impacted' && (e?.governanceChangeIds.length || e?.awarenessChangeIds.length) ? <span className="rel-mark" title="Governance / awareness relationship (communication relevance, not an impact)">{e.governanceChangeIds.length ? 'GOV' : 'AWR'}</span> : null}
+                      {(e?.source === 'consultant' || (e?.changeDecisions ?? 0) > 0) && <span className="dot-override" />}{e?.conflict && <span className="dot-conflict" />}{(a?.comments.length ?? 0) > 0 && <span className="dot-review" style={{ background: 'var(--blue)' }} />}
                       {e?.status === 'needs_review' && e.classification !== 'review' && <span className="dot-review" />}</div>,
-                    title: `${e?.classification.replace('_', ' ')}${e?.directness ? ` (${e.directness})` : ''} · ${e?.source === 'consultant' ? 'Consultant decision' : 'Rule recommendation'}${band ? ` · ${band} severity` : ''}`,
+                    title: `${e?.classification.replace('_', ' ')}${e?.directness ? ` (${e.directness})` : ''} · ${e?.source === 'consultant' ? 'Consultant decision' : e?.confirmed ? 'Confirmed via change-level decisions' : 'Rule proposed'}${band ? ` · ${band} severity` : ''} · ${e?.changeIds.length ?? 0} contributing change(s)`,
                   };
                 }}
                 legend={<>
                   <span><span className="sym yes">✓</span> Impacted (confirmed)</span><span><span className="sym rec">✓</span> Impacted (rule proposed)</span>
-                  <span><span className="sym no">×</span> Not impacted</span><span><span className="sym rev">?</span> Requires review</span>
+                  <span><span className="sym no">×</span> Not impacted (confirmed)</span><span><span className="sym no-rec">×</span> Not impacted (rule proposed — no established relationship)</span><span><span className="rel-mark" style={{ position: 'static' }}>GOV</span>/<span className="rel-mark" style={{ position: 'static' }}>AWR</span> governance / awareness relevance</span><span><span className="sym rev">?</span> Requires review</span>
                   <span>H/M/L severity band (only when scored)</span>
                   <span className="row"><span className="swatch" style={{ background: 'var(--ok)', borderRadius: 6 }} /> Consultant override</span>
                   <span className="row"><span className="swatch" style={{ background: 'var(--crit)', borderRadius: 6 }} /> Override conflicts with current rules</span>

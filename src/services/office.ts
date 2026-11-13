@@ -96,12 +96,15 @@ function stakeholderSheet(wb: Wb, s: EngagementState) {
 }
 
 function changeSheet(wb: Wb, s: EngagementState) {
-  const rows = s.changes.map((c) => [c.code, s.dimensions.find((x) => x.id === c.dimensionId)?.short ?? '', c.title, c.description, c.asIs, c.toBe, c.notChanging, c.rationale,
-    c.functionName, c.geography, c.process, c.effectiveDate ?? '', s.milestones.find((m) => m.id === c.milestoneId)?.name ?? '', c.waveIds.map((w) => waveName(s, w)).join(', '),
-    c.peopleAffected, c.owner, c.operationalImpact, c.behaviouralImpact, c.dependencies, c.assumptions, c.evidence, c.status]);
-  tableSheet(wb, s, 'Change Register', 'Change Register', 'Specific change records by change dimension.',
-    ['ID', 'Dimension', 'Title', 'Description', 'As-Is', 'To-Be', 'Not changing', 'Rationale', 'Function', 'Geography', 'Process', 'Effective', 'Milestone', 'Waves', 'People', 'Owner', 'Operational impact', 'Behavioural impact', 'Dependencies', 'Assumptions', 'Evidence', 'Status'],
-    rows, [10, 18, 36, 30, 34, 34, 28, 30, 18, 16, 20, 12, 22, 16, 9, 16, 28, 28, 22, 26, 24, 12]);
+  const rows = s.changes.map((c) => [c.code, c.active ? 'In scope' : 'Removed', c.source === 'template' ? 'Library' : 'Custom', c.templateId ?? '', c.templateVersion ?? '',
+    s.dimensions.find((x) => x.id === c.dimensionId)?.short ?? '', c.title, c.customDescription || c.description, c.asIs, c.toBe, c.source === 'template' && !c.defaultsReviewed ? 'Library default — confirm' : 'Reviewed',
+    c.notChanging, c.rationale, c.functionTags.join(', ') || 'All in-scope', c.processTags.join(', '), c.geography, c.entities.join(', '), c.effectiveDate ?? '',
+    s.milestones.find((m) => m.id === c.milestoneId)?.name ?? '', c.waveIds.map((w) => waveName(s, w)).join(', ') || 'All waves',
+    Object.entries(c.clarificationAnswers ?? {}).map(([q, a]) => `${q}=${a}`).join('; '), c.peopleAffected, c.owner, c.operationalImpact, c.behaviouralImpact,
+    c.dependencies, c.assumptions, c.evidence, c.status]);
+  tableSheet(wb, s, 'Change Register', 'Change Register', 'Library-derived and custom change records by change dimension.',
+    ['ID', 'Scope', 'Source', 'Template', 'Version', 'Dimension', 'Title', 'Description', 'As-Is', 'To-Be', 'Description status', 'Not changing', 'Rationale', 'Functions', 'Processes', 'Geography', 'Entities', 'Effective', 'Milestone', 'Waves', 'Clarifications', 'People', 'Owner', 'Operational impact', 'Behavioural impact', 'Dependencies', 'Assumptions', 'Evidence', 'Status'],
+    rows, [10, 10, 9, 11, 8, 16, 36, 36, 30, 30, 16, 24, 26, 18, 20, 14, 16, 12, 22, 16, 30, 8, 16, 24, 24, 20, 30, 26, 12]);
 }
 
 function impactSheets(wb: Wb, s: EngagementState) {

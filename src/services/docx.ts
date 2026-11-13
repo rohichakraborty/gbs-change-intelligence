@@ -157,7 +157,7 @@ export async function consolidatedReportDocx(s: EngagementState): Promise<Blob> 
       ['Status', e.isDemo ? 'Demonstration data — not validated' : 'Working draft for consultant review'],
     ], false),
     new Paragraph({ heading: HeadingLevel.HEADING_2, children: runs('Stage 1 — Change Identification') }),
-    table([['ID', 'Dimension', 'Change', 'As-Is', 'To-Be', 'Function', 'Status'], ...s.changes.map((c) => [c.code, s.dimensions.find((x) => x.id === c.dimensionId)?.short ?? '', c.title, c.asIs || '[CONFIRM AS-IS]', c.toBe || '[CONFIRM TO-BE]', c.functionName || '—', c.status.replace('_', ' ')])]),
+    table([['ID', 'Dimension', 'Change', 'As-Is', 'To-Be', 'Function', 'Status'], ...s.changes.filter((c) => c.active).map((c) => [c.code, s.dimensions.find((x) => x.id === c.dimensionId)?.short ?? '', c.title, c.asIs || '[CONFIRM AS-IS]', c.toBe || '[CONFIRM TO-BE]', c.functionName || '—', c.status.replace('_', ' ')])]),
   ];
   const impactRows: string[][] = [['Stakeholder', ...d.selectedDims.map((x) => x.short)]];
   for (const g of groupStakeholders(s, d.selectedStakeholders)) {

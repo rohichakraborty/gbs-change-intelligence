@@ -29,7 +29,7 @@ export function Overview() {
 
   const next: { view: ViewId; label: string } =
     !e.setupComplete ? { view: 'engagement-setup', label: 'Complete engagement setup' }
-    : !s.changes.length ? { view: 'change-identification', label: 'Record specific changes' }
+    : !d.activeChangeRecords.length ? { view: 'change-identification', label: 'Select changes from the library' }
     : !d.selectedStakeholders.length ? { view: 'stakeholder-register', label: 'Select stakeholders' }
     : [...d.impacts.values()].some((x) => x.classification === 'review' && x.source === 'rule') ? { view: 'impact-assessment', label: 'Resolve impact cells needing review' }
     : !d.activeMilestones.length ? { view: 'milestone-planner', label: 'Select GBS milestones' }
@@ -56,7 +56,7 @@ export function Overview() {
     return { st, high: bands.filter((b) => b === 'High').length };
   }).filter((x) => x.high > 0).sort((a, b) => b.high - a.high).slice(0, 6);
   const fnCounts = new Map<string, number>();
-  for (const c of s.changes) fnCounts.set(c.functionName || 'Unspecified', (fnCounts.get(c.functionName || 'Unspecified') ?? 0) + 1);
+  for (const c of d.activeChangeRecords) for (const f of c.functionTags.length ? c.functionTags : ['Cross-functional']) fnCounts.set(f, (fnCounts.get(f) ?? 0) + 1);
   const waveCounts = s.waves.map((w) => ({ label: w.name, value: d.activeComms.filter((c) => c.milestone.waveId === w.id).length }));
   waveCounts.push({ label: 'Engagement-wide', value: d.activeComms.filter((c) => !c.milestone.waveId).length });
   const byPhase = s.phases.map((p) => ({ label: p.short, value: d.activeComms.filter((c) => c.milestone.phaseId === p.id).length }));
@@ -77,7 +77,7 @@ export function Overview() {
 
       <div className="kpis">
         <Kpi label="Active phase" value={<span style={{ fontSize: 15 }}>{phase ? `${phase.num}. ${phase.short}` : '—'}</span>} sub={nextMs ? `Next: ${nextMs.m.name} · ${fmtDate(nextMs.date)}` : 'No upcoming dated milestone'} onClick={() => setView('milestone-planner')} />
-        <Kpi label="Change records" value={s.changes.length} sub={`${d.selectedDims.length} dimension(s) selected`} onClick={() => setView('change-identification')} />
+        <Kpi label="Change records" value={d.activeChangeRecords.length} sub={`${d.activeChangeRecords.filter((c) => c.source === 'template').length} from library · ${d.activeChangeRecords.filter((c) => c.source === 'custom').length} custom · ${d.clarificationQueue.reduce((n, q) => n + q.changeIds.length, 0)} open questions`} onClick={() => setView('change-identification')} />
         <Kpi label="Stakeholder groups" value={d.selectedStakeholders.length} sub={`${directStakeholders.length} directly impacted`} onClick={() => setView('stakeholder-register')} />
         <Kpi label="Impact assessment" value={`${totalCells ? Math.round((decided / totalCells) * 100) : 0}%`} sub={`${decided}/${totalCells} cells consultant-confirmed · ${determinable} determinable`} pct={totalCells ? decided / totalCells : 0} onClick={() => setView('impact-assessment')} />
         <Kpi label="Planning coverage" value={`${directStakeholders.length ? Math.round((covered.length / directStakeholders.length) * 100) : 0}%`} sub={`${covered.length}/${directStakeholders.length} impacted groups have communications`} pct={directStakeholders.length ? covered.length / directStakeholders.length : 0} onClick={() => setView('audience-matrix')} />

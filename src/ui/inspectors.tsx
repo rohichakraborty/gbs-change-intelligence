@@ -11,7 +11,10 @@ import { milestoneLabel } from '../engine/matrixText';
 import { waveName } from '../engine/timing';
 import { addCommunication, addImpactComment, markReviewed, setCommStatus, setImpactDecision, updateComm, generateArtifact } from '../store/actions';
 import { Badge, Btn, Empty, Prov, PhText, Tabs, TextIn, Seg } from './kit';
-import { ChangeEditor } from '../modules/ChangeIdentification';
+import { ChangeEditor, TemplateDetail } from '../modules/change/ChangeEditor';
+import { relationLabel } from '../engine/templateImpact';
+import { setChangeDecision } from '../store/changeActions';
+import { getTemplate } from '../catalogue/registry';
 import { StakeholderEditor } from '../modules/StakeholderRegister';
 import { MilestoneEditor } from '../modules/MilestonePlanner';
 
@@ -19,7 +22,7 @@ export function InspectorPanel() {
   const ins = useApp((x) => x.inspector)!;
   const inspect = useApp((x) => x.inspect);
   const s = useApp((x) => x.current)!;
-  const title = ins.kind === 'impact' ? 'Impact assessment' : ins.kind === 'comm' ? 'Communication record' : ins.kind === 'cell' ? 'Audience cell' : ins.kind === 'change' ? 'Change record' : ins.kind === 'stakeholder' ? 'Stakeholder' : 'Milestone';
+  const title = ins.kind === 'impact' ? 'Impact assessment' : ins.kind === 'comm' ? 'Communication record' : ins.kind === 'cell' ? 'Audience cell' : ins.kind === 'change' ? 'Change record' : ins.kind === 'stakeholder' ? 'Stakeholder' : ins.kind === 'template' ? 'Library change template' : 'Milestone';
   const sub = ins.kind === 'change' ? s.changes.find((c) => c.id === ins.changeId)?.code : ins.kind === 'stakeholder' ? s.stakeholders.find((c) => c.id === ins.stakeholderId)?.roleName : ins.kind === 'milestone' ? s.milestones.find((c) => c.id === ins.milestoneId)?.name : '';
   return (
     <>
@@ -29,6 +32,7 @@ export function InspectorPanel() {
         {ins.kind === 'comm' && <CommInspector key={ins.commId} commId={ins.commId} initialTab={ins.tab} />}
         {ins.kind === 'cell' && <CellInspector key={`${ins.milestoneId}|${ins.stakeholderId}`} milestoneId={ins.milestoneId} stakeholderId={ins.stakeholderId} />}
         {ins.kind === 'change' && <ChangeEditor key={ins.changeId} id={ins.changeId} />}
+        {ins.kind === 'template' && <TemplateDetail key={ins.templateId} templateId={ins.templateId} />}
         {ins.kind === 'stakeholder' && <StakeholderEditor key={ins.stakeholderId} id={ins.stakeholderId} />}
         {ins.kind === 'milestone' && <MilestoneEditor key={ins.milestoneId} id={ins.milestoneId} />}
       </div>
@@ -74,7 +78,7 @@ function ImpactInspector({ stakeholderId, dimensionId }: { stakeholderId: string
   return (
     <>
       <dl className="kv"><dt>Stakeholder</dt><dd className="strong">{st.roleName}</dd><dt>Dimension</dt><dd>{dim.label}</dd><dt>Effective result</dt><dd>{CLASS_LABEL[eff.classification]} {eff.directness && `(${eff.directness})`} {eff.source === 'consultant' ? <Prov kind="consultant" /> : <Prov kind="rule" />}</dd>
-        <dt>Status</dt><dd><Badge tone={eff.status === 'confirmed' ? 'ok' : eff.status === 'needs_review' ? 'warn' : eff.status === 'rejected' ? 'crit' : 'info'}>{eff.status.replace('_', ' ')}</Badge></dd></dl>
+        <dt>Status</dt><dd>{eff.changeDecisions > 0 && <span className="tiny muted">{eff.changeDecisions} change-level decision(s) · </span>}<Badge tone={eff.status === 'confirmed' ? 'ok' : eff.status === 'needs_review' ? 'warn' : eff.status === 'rejected' ? 'crit' : 'info'}>{eff.status.replace('_', ' ')}</Badge></dd></dl>
       {eff.conflict && <div className="banner crit"><AlertTriangle size={15} /><div className="grow small">The rule recommendation has changed to <strong>{CLASS_LABEL[rec.classification]}</strong> since this decision was made. Your decision is kept; review and re-confirm or revert.</div></div>}
 
       <div className="insp-block rec">
@@ -86,10 +90,32 @@ function ImpactInspector({ stakeholderId, dimensionId }: { stakeholderId: string
         <div className="tiny muted" style={{ marginTop: 6 }}>Rules: {rec.ruleIds.join(', ') || '—'}</div>
       </div>
       <div className="insp-block">
-        <h4>Specific changes considered</h4>
-        {rec.pairs.length === 0 ? <p className="small muted">No change records in this dimension.</p> : rec.pairs.map((p) => {
+        <h4>Contributing changes ({rec.pairs.length})</h4>
+        <p className="tiny muted" style={{ marginBottom: 6 }}>The cell aggregates these change-level assessments. Confirm or reject each one; a confirmed impact on any change shows the cell as confirmed.</p>
+        {rec.pairs.length === 0 ? <p className="small muted">No change records in this dimension.</p> : [...rec.pairs].sort((x, y) => ['direct', 'indirect', 'unknown', 'governance', 'awareness', 'none'].indexOf(x.hit) - ['direct', 'indirect', 'unknown', 'governance', 'awareness', 'none'].indexOf(y.hit)).map((p) => {
           const c = s.changes.find((x) => x.id === p.changeId)!;
-          return <div key={p.changeId} className="small" style={{ marginBottom: 6 }}><span className="mono">{c.code}</span> <strong>{c.title}</strong> <Badge tone={p.hit === 'direct' ? 'ok' : p.hit === 'indirect' ? 'info' : p.hit === 'unknown' ? 'warn' : 'muted'}>{p.hit === 'none' ? 'no impact' : p.hit}</Badge><div className="muted">{p.text}</div></div>;
+          const tpl = c.source === 'template' ? getTemplate(c.templateId, c.templateVersion, s) : undefined;
+          const dec = p.decision;
+          return (
+            <div key={p.changeId} className="rel-row" style={{ gridTemplateColumns: '1fr' }}>
+              <div className="small"><span className="mono">{c.code}</span> <strong>{c.title}</strong>{' '}
+                <Badge tone={p.hit === 'direct' ? 'ok' : p.hit === 'indirect' ? 'info' : p.hit === 'unknown' ? 'warn' : p.hit === 'governance' || p.hit === 'awareness' ? 'ai' : 'muted'}>{relationLabel(p.hit)}</Badge>
+                {dec && <> <Badge tone="ok">Consultant: {dec.classification.replace('_', ' ')}</Badge></>}</div>
+              <dl className="kv tiny" style={{ marginTop: 4 }}>
+                <dt>Explanation</dt><dd>{p.text}</dd>
+                {p.info && <><dt>Info required</dt><dd>{p.info}</dd></>}
+                <dt>Source</dt><dd>{c.source === 'template' ? `Library template ${c.templateId} v${c.templateVersion}, rule ${p.ruleId}${tpl ? '' : ' (template missing)'}` : `Keyword rule ${p.ruleId} on custom change`}{c.source === 'template' && !c.defaultsReviewed ? ' · library-default description' : ''}</dd>
+                <dt>Status</dt><dd>{dec ? `Consultant decision${dec.basedOnRec && dec.basedOnRec !== (p.hit === 'direct' || p.hit === 'indirect' ? 'impacted' : p.hit === 'unknown' ? 'review' : 'not_impacted') ? ' — recommendation has since changed' : ''}` : p.hit === 'unknown' ? 'Rule proposed / Requires review' : 'Rule proposed'}</dd>
+              </dl>
+              {p.source !== 'scope' && (
+                <div className="row" style={{ marginTop: 4 }}>
+                  <Btn size="sm" onClick={() => setChangeDecision(stakeholderId, c.id, dimensionId, { classification: 'impacted', directness: p.hit === 'indirect' ? 'indirect' : 'direct', rationale: `Confirmed from ${c.code}` })}>Confirm impact</Btn>
+                  <Btn size="sm" onClick={() => setChangeDecision(stakeholderId, c.id, dimensionId, { classification: 'not_impacted', directness: null, rationale: `Consultant: ${c.code} does not impact this stakeholder` })}>Not impacted</Btn>
+                  {dec && <Btn size="sm" variant="ghost" icon={<RotateCcw size={12} />} onClick={() => setChangeDecision(stakeholderId, c.id, dimensionId, null)}>Clear</Btn>}
+                </div>
+              )}
+            </div>
+          );
         })}
       </div>
       {(rec.gaps.length > 0 || rec.assumptions.length > 0) && (

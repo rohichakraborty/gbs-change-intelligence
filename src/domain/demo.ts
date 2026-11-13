@@ -3,7 +3,9 @@
 // No real organisation, person, or project is represented. Nothing here is validated.
 // ---------------------------------------------------------------------------
 import type { ChangeRecord, EngagementState, Milestone, Stakeholder } from './types';
-import { createBlankState, commFromRec, milestoneFromTemplate } from './factory';
+import { createBlankState, commFromRec, customChange, milestoneFromTemplate, nextChangeCode } from './factory';
+import { getTemplate } from '../catalogue/registry';
+import { instanceFromTemplate } from '../catalogue/instance';
 import { MILESTONE_LIBRARY } from './library';
 import { nowIso, uid } from './util';
 import { derive } from '../engine/derive';
@@ -105,51 +107,45 @@ export function createDemoState(): EngagementState {
   addWave2('employee_training');
   const w2Golive = addWave2('golive');
 
-  // --- Change records (synthetic)
-  let n = 0;
-  const chg = (p: Partial<ChangeRecord> & Pick<ChangeRecord, 'dimensionId' | 'title'>): ChangeRecord => {
-    n += 1;
-    const c: ChangeRecord = {
-      id: uid('chg'), code: `CHG-${String(n).padStart(3, '0')}`, description: '', asIs: '', toBe: '', notChanging: '', rationale: '', functionName: '',
-      geography: '', process: '', effectiveDate: null, milestoneId: null, waveIds: [], peopleAffected: null, owner: '', operationalImpact: '',
-      behaviouralImpact: '', dependencies: '', assumptions: '', evidence: '', status: 'confirmed', ...p,
-    };
+  // --- Change selection from the GBS Change Library (synthetic engagement facts layered on top)
+  const pickT = (id: string, patch: Partial<ChangeRecord> = {}, answers: Record<string, string> = {}) => {
+    const tpl = getTemplate(id, 1)!;
+    const c = { ...instanceFromTemplate(s, tpl, nextChangeCode(s)), ...patch };
+    c.clarificationAnswers = { ...answers };
     s.changes.push(c);
     return c;
   };
   const w1Golive = ms('golive');
-  chg({ dimensionId: 'dim_om', title: 'AP, AR and GL processing move to the GBS centre', functionName: FIN, waveIds: [w1.id], process: 'Accounts payable, accounts receivable, general ledger',
-    asIs: 'Transactional finance is performed by local Finance teams in each country with local practices.', toBe: 'AP, AR and GL transactions are delivered by GBS Kraków under a service catalogue with SLAs.',
-    notChanging: 'Local CFO accountability for statutory reporting and financial control remains with each entity.', rationale: 'Standardise finance operations, strengthen controls, and create a scalable service platform (demo rationale).',
-    effectiveDate: '2027-04-05', milestoneId: w1Golive.id, owner: 'Anna Keller', operationalImpact: 'Service levels are governed through SLAs rather than local line management.', evidence: 'Design workshop outputs, Sep 2026 (fictional).' });
-  chg({ dimensionId: 'dim_om', title: 'HR operations move to the GBS centre', functionName: HR, waveIds: [w2.id], process: 'Onboarding administration, employee data management, payroll input',
-    asIs: 'HR administration is handled by local HR administrators in each country.', toBe: 'HR operations are delivered by GBS Kraków through a tiered HR service model.',
-    rationale: 'Consistent employee experience and HR data quality (demo rationale).', effectiveDate: '2027-07-05', milestoneId: w2Golive.id, owner: 'Mark Bennett', status: 'needs_review',
-    assumptions: 'Payroll calculation remains with the existing payroll provider.' });
-  chg({ dimensionId: 'dim_pr', title: 'Standardised purchase-to-pay with central invoice receipt', functionName: FIN, waveIds: [w1.id], process: 'Purchase-to-pay',
-    asIs: 'Invoices are received by local AP teams by post and email with varying approval routes.', toBe: 'All supplier invoices are received centrally, matched three-way against PO and goods receipt, and routed by workflow for approval.',
-    notChanging: 'Budget holders keep the same approval authority limits.', rationale: 'Reduce manual effort and late payments; strengthen control (demo rationale).', effectiveDate: '2027-04-05', owner: 'Anna Keller',
-    behaviouralImpact: 'Requesters must raise purchase orders before ordering ("no PO, no pay").' });
-  chg({ dimensionId: 'dim_pr', title: 'Single global employee data change process', functionName: HR, waveIds: [w2.id], process: 'Employee data management',
-    asIs: 'Managers email local HR to request employee data changes.', toBe: 'Managers and employees submit data changes through HR case management with standard approval rules.', effectiveDate: '2027-07-05', owner: 'Mark Bennett' });
-  chg({ dimensionId: 'dim_os', title: 'AP/AR/GL employees transfer from local Finance into the GBS organisation', functionName: FIN, waveIds: [w1.id], process: 'Finance operations',
-    asIs: 'Local Finance reporting structure — employees report to country Finance Managers.', toBe: 'Central GBS reporting structure — employees report to GBS Finance Operations leads.',
-    rationale: 'Single accountable service organisation (demo rationale).', peopleAffected: 46, effectiveDate: '2027-04-05', owner: 'Mark Bennett',
-    operationalImpact: 'Reporting lines, people-management responsibilities, escalation routes, and role expectations change.', assumptions: 'Transfer mechanism and employment terms to be confirmed by HR and Legal per jurisdiction.' });
-  chg({ dimensionId: 'dim_os', title: 'Local HR administrator roles redesigned as HR advisory roles', functionName: HR, waveIds: [w2.id], process: 'HR service delivery',
-    asIs: 'Local HR administrators perform transactional HR administration.', toBe: 'Retained HR team members move into HR advisory roles focused on employee relations and manager support; transactional work moves to GBS.',
-    peopleAffected: 28, effectiveDate: '2027-07-05', owner: 'Mark Bennett', status: 'needs_review' });
-  chg({ dimensionId: 'dim_te', title: 'Invoice automation and AP workflow platform', functionName: FIN, waveIds: [w1.id], process: 'Accounts payable',
-    asIs: 'Manual invoice keying into local ERP instances.', toBe: 'OCR invoice capture with an AP workflow platform integrated with the ERP; requesters approve invoices in the workflow tool.',
-    effectiveDate: '2027-04-05', owner: 'Rahul Mehta' });
-  chg({ dimensionId: 'dim_te', title: 'HR case management and employee self-service', functionName: HR, waveIds: [w2.id], process: 'HR enquiries',
-    asIs: '', toBe: '', description: 'Platform selection in progress — To-Be not yet documented.', owner: 'Rahul Mehta', status: 'draft' });
-  chg({ dimensionId: 'dim_im', title: 'Suppliers submit invoices and queries to a central GBS helpdesk', functionName: FIN, waveIds: [w1.id], process: 'Supplier queries',
-    asIs: 'Suppliers contact local AP teams by phone and email.', toBe: 'Suppliers send invoices to a central e-invoicing mailbox and raise payment queries with the GBS supplier helpdesk.',
-    effectiveDate: '2027-04-05', owner: 'Anna Keller' });
-  chg({ dimensionId: 'dim_im', title: 'Tiered HR service desk for employee and manager queries', functionName: HR, waveIds: [w2.id], process: 'HR enquiries',
-    asIs: 'Employees and managers contact their local HR administrator directly.', toBe: 'Employees and managers raise HR queries through the HR portal (tier 0), GBS HR service desk (tier 1), with retained HR advisory for complex cases.',
-    effectiveDate: '2027-07-05', owner: 'Mark Bennett' });
+  // Finance — Wave 1
+  pickT('OM-FIN-01', { toBe: 'GBS Kraków delivers Accounts Payable processing for UK, DE and NL under agreed SLAs; retained Finance governs the service.', rationale: 'Standardise finance operations, strengthen controls, and create a scalable service platform (demo rationale).', notChanging: 'Local CFO accountability for statutory reporting and financial control remains with each entity.', effectiveDate: '2027-04-05', milestoneId: w1Golive.id, owner: 'Anna Keller', status: 'confirmed', defaultsReviewed: true }, { supplier_facing: 'yes', employment_effect: 'transfer' });
+  pickT('OM-FIN-02', { status: 'confirmed', effectiveDate: '2027-04-05' }, { customer_facing: 'no', employment_effect: 'transfer' });
+  pickT('OM-FIN-03', { status: 'confirmed', effectiveDate: '2027-04-05' }, { employment_effect: 'transfer' });
+  pickT('PR-FIN-01', { status: 'confirmed' }, { supplier_facing: 'yes', requester_impact: 'yes' });
+  pickT('PR-FIN-02', {}, { requester_impact: 'yes' });
+  pickT('PR-FIN-05');
+  pickT('OS-FIN-01', { peopleAffected: 46, effectiveDate: '2027-04-05', status: 'confirmed', defaultsReviewed: true, asIs: 'AP/AR/GL staff report to country Finance Managers in UK, DE and NL.', toBe: 'AP/AR/GL staff report to GBS Finance Operations leads in the GBS organisation.', assumptions: 'Transfer mechanism and employment terms to be confirmed by HR and Legal per jurisdiction.' }, { employment_effect: 'transfer' });
+  pickT('TE-FIN-01', { owner: 'Rahul Mehta' }, { tech_type: 'supplement', supplier_facing: 'yes', automation_effect: 'augment' });
+  pickT('TE-FIN-02', {}, { supplier_facing: 'yes' });
+  pickT('IM-PRO-01', {}, { supplier_facing: 'yes' });
+  pickT('IM-FIN-01', {}, { supplier_facing: 'yes' });
+  // HR — Wave 2
+  pickT('OM-HR-01', { status: 'needs_review', effectiveDate: '2027-07-05' }, { employment_effect: 'transfer' });
+  pickT('OM-HR-05', { effectiveDate: '2027-07-05' });
+  pickT('PR-HR-03', {}, { requester_impact: 'yes' });
+  pickT('PR-HR-02', {}, { requester_impact: 'yes' });
+  pickT('OS-HR-01', { peopleAffected: 28, status: 'needs_review' }, { employment_effect: 'role_change' });
+  pickT('TE-HR-02', {}, { portal_population: 'all_employees' });
+  pickT('IM-HR-01', { effectiveDate: '2027-07-05' });
+  // Enterprise-wide
+  pickT('OM-ENT-01', { status: 'confirmed' });
+  pickT('OM-ENT-03');
+  pickT('TE-ENT-01'); // clarification intentionally left unanswered to demonstrate "Requires review"
+  pickT('IM-ENT-07');
+  // One consultant-authored custom change (keyword rules), with an undocumented To-Be
+  const custom = customChange(s, 'dim_te');
+  Object.assign(custom, { title: 'HR case management platform selection', functionName: HR, functionTags: [HR], waveIds: [w2.id], process: 'HR enquiries',
+    description: 'Platform selection in progress — To-Be not yet documented.', owner: 'Rahul Mehta', status: 'draft' });
+  s.changes.push(custom);
   void w2Impacted;
 
   // --- Consultant decisions on the impact matrix (demonstrate overrides)

@@ -4,6 +4,7 @@ import { hash } from '../domain/util';
 import { anchorGoLive } from './timing';
 import { lensFor } from './messaging';
 import { rolePerson } from './communicator';
+import { getTemplate } from '../catalogue/registry';
 import type { CommView } from './derive';
 
 /** Facts an artifact depends on. A change to any of these flags the artifact as potentially outdated. */
@@ -63,6 +64,14 @@ export function recommendArtifactTypes(s: EngagementState, v: CommView): Artifac
   if (lens === 'manager' && v.rec.objective === 'prepare') add('manager_cascade');
   if (lens === 'general' || (chans.includes('ch_email') && (lens === 'employee'))) add('general_announcement');
   if (lens === 'transferring' || lens === 'retained_role') add('impacted_email');
+  // Typical artifacts of the linked library templates (lower priority than audience/channel rules).
+  for (const c of v.changes) {
+    const t = c.source === 'template' ? getTemplate(c.templateId, c.templateVersion, s) : undefined;
+    for (const a of t?.typicalArtifactTypes ?? []) {
+      if ((a === 'vendor' && lens !== 'supplier') || (a === 'customer' && lens !== 'customer') || (a === 'impacted_email' && !['transferring', 'retained_role', 'employee'].includes(lens))) continue;
+      if (out.length < 6) add(a);
+    }
+  }
   if (!out.length) add(lens === 'executive' ? 'exec_briefing' : 'general_announcement');
   return out;
 }

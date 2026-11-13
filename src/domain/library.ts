@@ -15,7 +15,7 @@ export const TRANSFORMATION_TYPES = [
 export const FUNCTION_LIBRARY = [
   'Finance & Accounting', 'Human Resources', 'Procurement', 'IT', 'Supply Chain', 'Customer Service',
   'Sales Operations', 'Marketing Operations', 'Legal Operations', 'Risk & Compliance',
-  'Data & Analytics', 'Enterprise Reporting',
+  'Data & Analytics', 'Enterprise Reporting', 'Administration & Facilities',
 ];
 
 export const TRANSITION_APPROACHES = ['Lift-and-shift', 'Lift-and-transform', 'Transform-then-shift', 'Phased migration', 'Outsourced transition', 'To be determined'];
@@ -67,8 +67,8 @@ export const STAKEHOLDER_LIBRARY: GroupTemplate[] = [
     t('cfo', 'CFO', 'cxo_finance', { decisionMaker: true, sponsor: true, communicator: true, approver: true }),
     t('chro', 'CHRO', 'cxo_hr', { decisionMaker: true, sponsor: true, communicator: true, approver: true }),
     t('cio', 'CIO / CTO', 'cxo_it', { decisionMaker: true, communicator: true }),
-    t('cdo', 'CDO', 'cxo_other', {}),
-    t('cpo', 'CPO', 'cxo_other', { communicator: true }),
+    t('cdo', 'CDO', 'cxo_data', { decisionMaker: true }),
+    t('cpo', 'CPO', 'cxo_procurement', { communicator: true, decisionMaker: true }),
     t('coo', 'COO', 'cxo_other', { decisionMaker: true }),
     t('bu_heads', 'Business Unit Heads', 'bu_head', {}),
     t('country_heads', 'Country Heads', 'country_head', {}),
@@ -138,6 +138,8 @@ export const STAKEHOLDER_LIBRARY: GroupTemplate[] = [
     t('compliance', 'Compliance', 'compliance', { support: true }),
     t('privacy', 'Data Privacy', 'compliance', { support: true }),
     t('bcp', 'Business Continuity', 'compliance', { support: true }),
+    t('data_governance_lead', 'Data Governance Lead', 'data_governance', { support: true, executionOwner: true }),
+    t('data_owners', 'Data Owners', 'process_owner', { support: true }),
   ] },
   { code: 'G', name: 'External Stakeholders', members: [
     t('suppliers', 'Suppliers', 'supplier'),
@@ -168,11 +170,12 @@ export const ARCHETYPE_LABELS: Record<Archetype, string> = {
   procurement: 'Procurement', finance_support: 'Finance support', payroll: 'Payroll', facilities: 'Facilities / admin',
   compliance: 'Compliance / privacy / continuity', supplier: 'Suppliers', customer: 'Customers', partner: 'External partners',
   regulator: 'Regulators', general_employee: 'General employees',
+  cxo_data: 'Data executive (CDO)', cxo_procurement: 'Procurement executive (CPO)', data_governance: 'Data governance / data owners',
 };
 
 // Archetype families used by the engines.
 export const A = {
-  executive: ['board', 'ceo', 'cxo_finance', 'cxo_hr', 'cxo_it', 'cxo_other', 'bu_head', 'country_head', 'sponsor', 'legal_risk_leader'] as Archetype[],
+  executive: ['board', 'ceo', 'cxo_finance', 'cxo_hr', 'cxo_it', 'cxo_other', 'cxo_data', 'cxo_procurement', 'bu_head', 'country_head', 'sponsor', 'legal_risk_leader'] as Archetype[],
   board: ['board'] as Archetype[],
   gbsLeaders: ['gbs_head', 'gbs_leader'] as Archetype[],
   programme: ['programme_lead', 'change_lead'] as Archetype[],
@@ -182,7 +185,7 @@ export const A = {
   hr: ['hr_support', 'lnd', 'payroll'] as Archetype[],
   it: ['it_support', 'infosec'] as Archetype[],
   external: ['supplier', 'customer', 'partner', 'regulator'] as Archetype[],
-  supportFns: ['hr_support', 'lnd', 'internal_comms', 'it_support', 'infosec', 'legal', 'procurement', 'finance_support', 'payroll', 'facilities', 'compliance'] as Archetype[],
+  supportFns: ['hr_support', 'lnd', 'internal_comms', 'it_support', 'infosec', 'legal', 'procurement', 'finance_support', 'payroll', 'facilities', 'compliance', 'data_governance'] as Archetype[],
   retained: ['retained_leader', 'retained_ops', 'service_recipient', 'business_user', 'governance_team', 'retained_unchanged', 'retained_modified'] as Archetype[],
   mass: ['general_employee', 'business_user', 'service_recipient', 'retained_unchanged'] as Archetype[],
 };

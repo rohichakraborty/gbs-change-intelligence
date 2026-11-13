@@ -13,6 +13,9 @@ export interface Persistence {
   load(id: string): Promise<EngagementState | null>;
   save(s: EngagementState): Promise<void>;
   remove(id: string): Promise<void>;
+  /** Shared change-library edits (separate from engagement data). */
+  loadCatalogue(): Promise<unknown>;
+  saveCatalogue(overlay: unknown): Promise<void>;
 }
 
 const summary = (s: EngagementState): EngagementSummary => ({
@@ -23,7 +26,10 @@ const summary = (s: EngagementState): EngagementSummary => ({
 
 function memoryAdapter(): Persistence {
   const m = new Map<string, EngagementState>();
+  let cat: unknown = null;
   return {
+    async loadCatalogue() { return cat; },
+    async saveCatalogue(o) { cat = o; },
     kind: 'memory', label: 'Not saved (memory only)',
     async list() { return [...m.values()].map(summary); },
     async load(id) { return m.get(id) ?? null; },
@@ -61,6 +67,8 @@ async function idbAdapter(): Promise<Persistence> {
     async load(id) { return ((await idbReq(store('readonly').get(id))) as EngagementState) ?? null; },
     async save(s) { await idbReq(store('readwrite').put(JSON.parse(JSON.stringify(s)), s.engagement.id)); },
     async remove(id) { await idbReq(store('readwrite').delete(id)); },
+    async loadCatalogue() { return (await idbReq(store('readonly').get('__catalogue__'))) ?? null; },
+    async saveCatalogue(o) { await idbReq(store('readwrite').put(JSON.parse(JSON.stringify(o)), '__catalogue__')); },
   };
 }
 
@@ -113,6 +121,11 @@ async function cloudAdapter(): Promise<Persistence | null> {
       idx.push(summary(s));
       await col.doc('index').set({ items: idx });
     }),
+    loadCatalogue: () => serial(async () => {
+      const snap = await col.doc('catalogue').get();
+      return snap.exists ? JSON.parse(String(snap.data()?.d ?? 'null')) : null;
+    }),
+    saveCatalogue: (o) => serial(async () => { await col.doc('catalogue').set({ d: JSON.stringify(o) }); }),
     remove: (eid) => serial(async () => {
       const prev = await col.doc(`e_${eid}_meta`).get();
       const n = prev.exists ? Number(prev.data()?.chunks ?? 0) : 0;

@@ -114,6 +114,25 @@ export interface ChangeRecord {
   assumptions: string;
   evidence: string;
   status: RecordStatus;
+  // ---- Template-derived instance fields (schema v2). Custom changes have source 'custom'. ----
+  source: 'template' | 'custom';
+  templateId: string | null;
+  templateVersion: number | null;
+  /** false = deselected / removed from scope; kept for traceability and re-selection. */
+  active: boolean;
+  /** Applicable functions ([] = all in-scope functions / cross-functional). functionName stays the primary one. */
+  functionTags: string[];
+  processTags: string[];
+  entities: string[];
+  /** Clarification answers: questionId -> optionId, or 'skip' when the consultant chose to skip. */
+  clarificationAnswers: Record<string, string>;
+  /** Fields the consultant changed from the template default. */
+  scopeOverrides: string[];
+  customDescription: string;
+  /** True once the consultant has reviewed the library-default description / As-Is / To-Be for this engagement. */
+  defaultsReviewed: boolean;
+  selectedAt: string | null;
+  lastModifiedAt: string | null;
 }
 
 // ----------------------------- Stakeholders ------------------------------
@@ -129,7 +148,8 @@ export type Archetype =
   | 'hr_support' | 'lnd' | 'internal_comms' | 'it_support' | 'infosec' | 'legal' | 'procurement'
   | 'finance_support' | 'payroll' | 'facilities' | 'compliance'
   | 'supplier' | 'customer' | 'partner' | 'regulator'
-  | 'general_employee';
+  | 'general_employee'
+  | 'cxo_data' | 'cxo_procurement' | 'data_governance';
 
 export interface StakeholderRoleFlags {
   decisionMaker: boolean;
@@ -462,6 +482,47 @@ export interface EngagementState {
   audit: AuditEvent[];
   dismissedSuggestions: Record<string, string>; // suggestion key -> fingerprint at dismissal
   counters: { change: number; comm: number; artifact: number };
+  // ---- schema v2 ----
+  /** Consultant decisions at stakeholder × change × dimension level (key `${stakeholderId}|${changeId}|${dimensionId}`). */
+  changeAssessments: Record<string, ChangeLevelDecision>;
+  /** Copies of non-built-in templates used by this engagement, so it stays self-contained (key `${templateId}@${version}`). */
+  templateSnapshots: Record<string, unknown>;
+  /** Rows from an imported change list awaiting consultant resolution. Never silently discarded. */
+  importQueue: ImportRow[];
+  /** Summary of the last selection change's downstream effect. */
+  lastPropagation: PropagationSummary | null;
+}
+
+export interface ChangeLevelDecision {
+  classification: ImpactClass;
+  directness: Directness | null;
+  rationale: string;
+  decidedAt: string;
+  basedOnRec: ImpactClass | null;
+}
+
+export interface ImportRow {
+  id: string;
+  rawTitle: string;
+  rawDescription: string;
+  rawFunction: string;
+  rawDimension: string;
+  matchTemplateId: string | null;
+  matchScore: number;
+  status: 'pending' | 'accepted' | 'custom' | 'dismissed';
+  resultChangeId: string | null;
+}
+
+export interface PropagationSummary {
+  at: string;
+  action: string;
+  changesAffected: number;
+  impactCellsChanged: number;
+  newImpactRecommendations: number;
+  newAudienceSuggestions: number;
+  communicationsFlagged: number;
+  milestonesSuggested: number;
+  artifactsOutdated: number;
 }
 
 export interface EngagementSummary {

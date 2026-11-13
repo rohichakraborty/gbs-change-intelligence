@@ -32,12 +32,22 @@ export interface StakeholderImpactSummary {
   direct: boolean;
   any: boolean;
   changeIds: string[];
+  /** Template-defined governance / awareness relationships (not impacts), wave-filtered. */
+  governanceChangeIds: string[];
+  awarenessChangeIds: string[];
 }
 
 export function impactSummaryFor(
   s: EngagementState, st: Stakeholder, impacts: Map<string, EffectiveImpact>, waveId: string | null,
 ): StakeholderImpactSummary {
   const dims: StakeholderImpactSummary['dims'] = [];
+  const inWave = (id: string) => { if (!waveId) return true; const c = s.changes.find((x) => x.id === id); return !!c && (!c.waveIds.length || c.waveIds.includes(waveId)); };
+  const gov = new Set<string>(), aw = new Set<string>();
+  for (const dimId of s.engagement.selectedDimensionIds) {
+    const e0 = impacts.get(`${st.id}|${dimId}`);
+    e0?.governanceChangeIds.filter(inWave).forEach((x) => gov.add(x));
+    e0?.awarenessChangeIds.filter(inWave).forEach((x) => aw.add(x));
+  }
   for (const dimId of s.engagement.selectedDimensionIds) {
     const e = impacts.get(`${st.id}|${dimId}`);
     if (!e || e.classification !== 'impacted') continue;
@@ -52,7 +62,7 @@ export function impactSummaryFor(
     dims.push({ dimensionId: dimId, directness: e.directness, changeIds });
   }
   const changeIds = Array.from(new Set(dims.flatMap((d) => d.changeIds)));
-  return { dims, direct: dims.some((d) => d.directness === 'direct'), any: dims.length > 0, changeIds };
+  return { dims, direct: dims.some((d) => d.directness === 'direct'), any: dims.length > 0, changeIds, governanceChangeIds: [...gov], awarenessChangeIds: [...aw] };
 }
 
 const OUTCOME: Record<Objective, string> = {
@@ -89,6 +99,8 @@ export function recommendAudience(
     cands.push({ kind, text, focus, objective, commTypeId, weight: REASON_WEIGHT[kind] });
 
   const isExec = A.executive.includes(a);
+  const codes = (ids: string[]) => ids.map((id) => s.changes.find((c) => c.id === id)?.code).filter(Boolean).slice(0, 4).join(', ');
+  const govText = imp.governanceChangeIds.length ? `Governance responsibility defined by the change library for ${codes(imp.governanceChangeIds)}.` : '';
   const isEmployee = A.employees.includes(a);
 
   for (const focus of m.trigger.focus) {
@@ -96,8 +108,10 @@ export function recommendAudience(
       case 'governance':
         if (st.roles.decisionMaker || st.roles.approver) add('decision', `Holds decision/approval authority required at "${m.name}".`, focus, 'seek_approval', CT.strategic);
         else if (st.roles.sponsor) add('sponsorship', `Sponsors the programme; must endorse the "${m.name}" outcome.`, focus, 'align', CT.strategic);
+        else if (govText) add('decision', govText, focus, 'seek_approval', CT.strategic);
         break;
       case 'leadership':
+        if (govText && !st.roles.sponsor && !imp.any) add('decision', govText, focus, 'align', CT.strategic);
         if ((isExec && a !== 'board') || A.gbsLeaders.includes(a)) {
           const lo: Objective = m.trigger.focus.includes('golive') ? 'announce' : 'align';
           if (st.roles.sponsor) add('sponsorship', 'Programme sponsor — needs to visibly lead and align on this milestone.', focus, lo, CT.strategic);
@@ -143,7 +157,8 @@ export function recommendAudience(
         }
         break;
       case 'awareness':
-        if (a === 'general_employee' || a === 'retained_unchanged') add('awareness', 'Needs general awareness of the transformation even though not directly impacted.', focus, 'inform', CT.awareness);
+        if (imp.awarenessChangeIds.length && !imp.any) add('awareness', `Awareness relevance defined by the change library for ${codes(imp.awarenessChangeIds)} (not an impact).`, focus, 'inform', CT.awareness);
+        else if (a === 'general_employee' || a === 'retained_unchanged') add('awareness', 'Needs general awareness of the transformation even though not directly impacted.', focus, 'inform', CT.awareness);
         else if (isEmployee && !imp.any) add('awareness', 'In-scope employee population with no assessed impact — awareness communication only.', focus, 'inform', CT.awareness);
         break;
       case 'retained':
@@ -190,7 +205,7 @@ export function recommendAudience(
   const fingerprint = `${reasons.map((r) => r.kind).join(',')}|${primary.objective}|${primary.commTypeId}`;
   return {
     milestoneId: m.id, stakeholderId: st.id, reasons, objective: primary.objective, commTypeId: primary.commTypeId,
-    priority, changeIds: imp.changeIds, intendedOutcome: OUTCOME[primary.objective], fingerprint,
+    priority, changeIds: Array.from(new Set([...imp.changeIds, ...(reasons.some((r) => r.kind === 'decision') ? imp.governanceChangeIds : []), ...(reasons.some((r) => r.kind === 'awareness') ? imp.awarenessChangeIds : [])])), intendedOutcome: OUTCOME[primary.objective], fingerprint,
   };
 }
 

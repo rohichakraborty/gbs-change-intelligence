@@ -6,6 +6,8 @@ import { createBlankState, SCHEMA_VERSION } from '../domain/factory';
 import { createDemoState } from '../domain/demo';
 import { nowIso, uid } from '../domain/util';
 import { initPersistence, type Persistence } from '../services/persistence';
+import { migrateState } from '../domain/migrate';
+import { safeOverlay, setCatalogueOverlay } from '../catalogue/registry';
 
 export type ViewId =
   | 'overview' | 'engagement-setup' | 'change-identification' | 'stakeholder-register' | 'impact-assessment'
@@ -21,6 +23,7 @@ export type Inspector =
   | { kind: 'comm'; commId: string; tab?: 'audience' | 'communicator' | 'channel' | 'message' | 'plan' }
   | { kind: 'cell'; milestoneId: string; stakeholderId: string }
   | { kind: 'change'; changeId: string }
+  | { kind: 'template'; templateId: string }
   | { kind: 'stakeholder'; stakeholderId: string }
   | { kind: 'milestone'; milestoneId: string };
 
@@ -53,6 +56,10 @@ interface AppState {
   deleteEngagement(id: string): Promise<void>;
   importState(raw: unknown): Promise<{ ok: boolean; message: string }>;
   saveNow(): Promise<void>;
+  /** Replace the current state without adding an undo step (derived bookkeeping only). */
+  patchCurrent(fn: (d: Draft<EngagementState>) => void): void;
+  catalogueRev: number;
+  bumpCatalogue(): void;
 }
 
 let saveTimer: ReturnType<typeof setTimeout> | null = null;
@@ -99,8 +106,19 @@ export const useApp = create<AppState>((set, get) => ({
   past: [],
   future: [],
 
+  catalogueRev: 0,
+  bumpCatalogue() { set({ catalogueRev: get().catalogueRev + 1 }); },
+  patchCurrent(fn) {
+    const cur = get().current;
+    if (!cur) return;
+    set({ current: produce(cur, fn) });
+    if (saveTimer) clearTimeout(saveTimer);
+    saveTimer = setTimeout(() => { void get().saveNow(); }, 400);
+  },
+
   async init() {
     const p = await initPersistence();
+    try { setCatalogueOverlay(safeOverlay(await p.loadCatalogue())); } catch { /* library edits unavailable */ }
     let list = await p.list().catch(() => [] as EngagementSummary[]);
     if (!list.length) {
       const demo = createDemoState();
@@ -113,7 +131,7 @@ export const useApp = create<AppState>((set, get) => ({
       const last = safeLS.get(LAST_KEY);
       const id = list.find((x) => x.id === last)?.id ?? list.sort((a, b) => (a.updatedAt < b.updatedAt ? 1 : -1))[0]?.id;
       const st = id ? await p.load(id).catch(() => null) : null;
-      set({ current: st ?? createDemoState() });
+      set({ current: st ? migrateState(st) : createDemoState() });
     }
     const flush = () => { if (get().saveState === 'unsaved') { if (saveTimer) clearTimeout(saveTimer); void get().saveNow(); } };
     window.addEventListener('pagehide', flush);
@@ -184,8 +202,9 @@ export const useApp = create<AppState>((set, get) => ({
     const p = get().persistence;
     if (!p) return;
     await get().saveNow();
-    const st = await p.load(id);
-    if (!st) { get().toast('Engagement could not be loaded.', 'error'); return; }
+    const raw = await p.load(id);
+    if (!raw) { get().toast('Engagement could not be loaded.', 'error'); return; }
+    const st = migrateState(raw);
     set({ current: st, past: [], future: [], inspector: null, saveState: 'saved' });
     safeLS.set(LAST_KEY, id);
     get().setView('overview');
@@ -216,7 +235,8 @@ export const useApp = create<AppState>((set, get) => ({
     const list = await p.list();
     set({ engagements: list });
     if (get().current?.engagement.id === id) {
-      const next = list[0] ? await p.load(list[0].id) : null;
+      const loaded = list[0] ? await p.load(list[0].id) : null;
+      const next = loaded ? migrateState(loaded) : null;
       set({ current: next ?? createDemoState(), past: [], future: [] });
       if (!next) await get().saveNow();
     }
@@ -228,7 +248,7 @@ export const useApp = create<AppState>((set, get) => ({
     if (!r.success) return { ok: false, message: `File is not a valid engagement export: ${r.error.issues[0]?.path.join('.')} ${r.error.issues[0]?.message}` };
     const st = raw as EngagementState;
     if (st.schemaVersion > SCHEMA_VERSION) return { ok: false, message: 'This export was created by a newer version of the app.' };
-    const copy = JSON.parse(JSON.stringify(st)) as EngagementState;
+    const copy = migrateState(JSON.parse(JSON.stringify(st)) as EngagementState);
     if (get().engagements.some((x) => x.id === copy.engagement.id)) {
       copy.engagement.id = uid('eng');
       copy.engagement.name = `${copy.engagement.name} (imported)`;

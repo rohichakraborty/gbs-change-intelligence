@@ -20,6 +20,7 @@ export function MilestonePlanner() {
   const [phase, setPhase] = useState('');
   const [fn, setFn] = useState('');
   const [onlySel, setOnlySel] = useState(false);
+  const [onlySug, setOnlySug] = useState(false);
   const { ask, node } = useConfirm();
   const d = useMemo(() => derive(s), [s]);
   const selId = inspector?.kind === 'milestone' ? inspector.milestoneId : null;
@@ -53,6 +54,11 @@ export function MilestonePlanner() {
         actions={<Seg options={[{ value: 'library', label: 'Milestone library' }, { value: 'timeline', label: 'Timeline' }, { value: 'calendar', label: 'Communication calendar' }]} value={view} onChange={setView} />} />
       {view === 'library' && (
         <>
+          {d.suggestedMilestones.size > 0 && (
+            <div className="banner info"><div className="grow small"><strong>{d.suggestedMilestones.size} unselected milestone(s) are typical for the selected changes</strong> — marked “Suggested” below. They are not activated automatically.</div>
+              <Btn size="sm" onClick={() => setOnlySug(!onlySug)}>{onlySug ? 'Show all' : 'Show suggested only'}</Btn>
+              <Btn size="sm" variant="primary" onClick={async () => { if (await ask('Select suggested milestones', `${d.suggestedMilestones.size} milestone(s) will be selected and will start generating audience recommendations.`, 'Select')) mutate((dd) => { dd.milestones.forEach((m) => { if (d.suggestedMilestones.has(m.id)) m.selected = true; }); }, { entityType: 'milestone', entityId: 'bulk', action: 'select', summary: `${d.suggestedMilestones.size} suggested milestone(s) selected` }); }}>Select all suggested</Btn></div>
+          )}
           <div className="row" style={{ marginBottom: 12 }}>
             <input className="input" style={{ maxWidth: 260 }} placeholder="Search milestones…" value={q} onChange={(e) => setQ(e.target.value)} aria-label="Search milestones" />
             <div style={{ width: 220 }}><Select value={phase} placeholder="All phases" options={s.phases.map((p) => ({ value: p.id, label: `${p.num}. ${p.name}` }))} onChange={setPhase} /></div>
@@ -62,7 +68,7 @@ export function MilestonePlanner() {
             <Badge tone="info">{d.activeMilestones.length} selected</Badge>
           </div>
           {s.phases.filter((p) => !phase || p.id === phase).map((p) => {
-            const ms = s.milestones.filter((m) => m.phaseId === p.id && (!q || includesCI(m.name, q)) && (!onlySel || m.selected) && (!fn || !m.functions.length || m.functions.includes(fn))).sort((a, b) => a.sortOrder - b.sortOrder);
+            const ms = s.milestones.filter((m) => m.phaseId === p.id && (!q || includesCI(m.name, q)) && (!onlySel || m.selected) && (!onlySug || d.suggestedMilestones.has(m.id)) && (!fn || !m.functions.length || m.functions.includes(fn))).sort((a, b) => a.sortOrder - b.sortOrder);
             const all = s.milestones.filter((m) => m.phaseId === p.id);
             const allOn = all.every((m) => m.selected);
             return (
@@ -77,7 +83,8 @@ export function MilestonePlanner() {
                       return (
                         <tr key={m.id} className={`clickable ${selId === m.id ? 'sel' : ''}`} style={{ opacity: m.selected ? 1 : 0.6 }} onClick={() => inspect({ kind: 'milestone', milestoneId: m.id })}>
                           <td onClick={(e) => e.stopPropagation()}><input type="checkbox" checked={m.selected} onChange={() => void toggle(m)} aria-label={`Select ${m.name}`} /></td>
-                          <td style={{ minWidth: 230 }}><span className="strong">{m.name}</span>{!m.libraryKey && <> <Badge tone="ai">custom</Badge></>}</td>
+                          <td style={{ minWidth: 230 }}><span className="strong">{m.name}</span>{!m.libraryKey && <> <Badge tone="ai">custom</Badge></>}
+                            {d.suggestedMilestones.has(m.id) && <> <Badge tone="info" title={`Suggested by ${d.suggestedMilestones.get(m.id)!.map((id) => s.changes.find((c) => c.id === id)?.code).join(', ')}`}>Suggested by {d.suggestedMilestones.get(m.id)!.length} change(s)</Badge></>}</td>
                           <td className="small">{m.kind === 'recurring' ? <Badge tone="info">{m.recurrence?.cadence ?? 'recurring'}</Badge> : m.kind}</td>
                           <td className="small">{m.waveId ? waveName(s, m.waveId) : 'Engagement-wide'}</td>
                           <td className="num small strong">{m.kind === 'milestone' ? formatT(milestoneOffset(s, m)) : '—'}</td>

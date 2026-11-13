@@ -15,6 +15,9 @@ import { recommendChannels, type ChannelRec } from './channel';
 import { recommendMessage } from './messaging';
 import { commPlannedDate, milestoneDate, milestoneOffset } from './timing';
 import { artifactSourceFingerprint, recommendArtifactTypes } from './artifactMeta';
+import { catalogueRevision, getTemplate, latestVersionNumber } from '../catalogue/registry';
+import { QUESTIONS } from '../catalogue/questions';
+import { activeChanges } from './impact';
 
 export interface CommView {
   rec: CommunicationRecord;
@@ -88,9 +91,17 @@ export interface Derived {
   suggestions: Suggestion[];
   artifactStates: Map<string, ArtifactState>;
   issues: Issue[];
+  /** Active (selected) change records — template-derived and custom. */
+  activeChangeRecords: ChangeRecord[];
+  /** Unselected milestones suggested by selected library changes (milestone id → change ids). Never auto-activated. */
+  suggestedMilestones: Map<string, string[]>;
+  /** Outstanding clarification questions grouped by question id. */
+  clarificationQueue: { questionId: string; changeIds: string[]; impactCritical: boolean }[];
+  /** Template-derived changes whose template has a newer library version. */
+  templateUpdates: string[];
 }
 
-const cache = new WeakMap<EngagementState, Derived>();
+const cache = new WeakMap<EngagementState, { rev: number; d: Derived }>();
 
 const ACTIVE_STATUSES = new Set(['proposed', 'needs_review', 'confirmed', 'draft_prepared', 'pending_approval', 'approved', 'ready', 'completed']);
 const CONFIRMED_PLUS = new Set(['confirmed', 'draft_prepared', 'pending_approval', 'approved', 'ready', 'completed']);
@@ -121,7 +132,7 @@ export function sortStakeholders(s: EngagementState, sts: Stakeholder[]): Stakeh
 
 export function derive(s: EngagementState): Derived {
   const hit = cache.get(s);
-  if (hit) return hit;
+  if (hit && hit.rev === catalogueRevision()) return hit.d;
 
   const selectedDims = s.dimensions.filter((d) => s.engagement.selectedDimensionIds.includes(d.id));
   const selectedStakeholders = sortStakeholders(s, s.stakeholders.filter((x) => x.selected));
@@ -164,6 +175,9 @@ export function derive(s: EngagementState): Derived {
     const rolesRec = recommendCommunicator(s, rec, audience, milestone, changeIds);
     const roles = rec.rolesOverride ?? rolesRec.assignment;
     const channelRec = recommendChannels(s, rec, audience, milestone);
+    const tplChannels = Array.from(new Set(changes.flatMap((c) => (c.source === 'template' ? getTemplate(c.templateId, c.templateVersion, s)?.suggestedChannels ?? [] : []))))
+      .filter((id) => enabled.has(id) && ![channelRec.plan.primary, ...channelRec.plan.secondary, channelRec.plan.reinforcement, channelRec.plan.followUp].includes(id));
+    if (tplChannels.length) channelRec.rationale.push(`Library templates of the linked changes also suggest: ${tplChannels.slice(0, 3).map((id) => s.channels.find((c) => c.id === id)?.name).join(', ')}.`);
     const channels = rec.channelsOverride ?? channelRec.plan;
     const allCh = [channels.primary, ...channels.secondary, channels.reinforcement, channels.followUp].filter((x): x is string => !!x);
     const disabledInUse = allCh.filter((id) => !enabled.has(id));
@@ -259,7 +273,7 @@ export function derive(s: EngagementState): Derived {
   for (const a of s.artifacts) {
     if (artifactStates.get(a.id)?.outdated) push('warning', 'Outdated artifact', `${a.code} "${a.title}" may contain outdated information.`, 'artifact-studio', a.id);
   }
-  for (const c of s.changes) {
+  for (const c of activeChanges(s)) {
     const m = c.milestoneId ? msById.get(c.milestoneId) : undefined;
     const md = m && m.selected ? milestoneDate(s, m) : null;
     if (c.effectiveDate && md && c.effectiveDate !== md) push('warning', 'Date inconsistency', `${c.code} effective date (${c.effectiveDate}) differs from its linked milestone "${m!.name}" (${md}). Confirm which date is correct.`, 'change-identification', c.id);
@@ -284,10 +298,49 @@ export function derive(s: EngagementState): Derived {
   const outOfScopeConfirmed = comms.filter((c) => c.outOfScopeReason && CONFIRMED_PLUS.has(c.rec.status));
   if (outOfScopeConfirmed.length) push('info', 'Out of scope', `${outOfScopeConfirmed.length} confirmed communication(s) belong to deselected milestones or audiences and are retained but inactive.`, 'communication-plan');
 
+  // Change-library derived checks
+  const acts = activeChanges(s);
+  const suggestedMilestones = new Map<string, string[]>();
+  for (const c of acts) {
+    if (c.source !== 'template') continue;
+    const tpl = getTemplate(c.templateId, c.templateVersion, s);
+    for (const key of tpl?.typicalMilestoneTriggers ?? []) {
+      for (const m of s.milestones.filter((x) => x.libraryKey === key && !x.selected)) {
+        if (m.waveId && c.waveIds.length && !c.waveIds.includes(m.waveId)) continue;
+        // Wave-specific copies are only suggested once: prefer the engagement-wide or matching-wave milestone.
+        if (!suggestedMilestones.has(m.id)) suggestedMilestones.set(m.id, []);
+        suggestedMilestones.get(m.id)!.push(c.id);
+      }
+    }
+  }
+  const qMap = new Map<string, string[]>();
+  for (const c of acts) {
+    if (c.source !== 'template') continue;
+    const tpl = getTemplate(c.templateId, c.templateVersion, s);
+    for (const q of tpl?.clarificationQuestions ?? []) {
+      const ans = c.clarificationAnswers?.[q];
+      if (ans && ans !== 'skip') continue;
+      if (!qMap.has(q)) qMap.set(q, []);
+      qMap.get(q)!.push(c.id);
+    }
+  }
+  const clarificationQueue = [...qMap.entries()].map(([questionId, changeIds]) => ({ questionId, changeIds, impactCritical: !!QUESTIONS[questionId]?.impactCritical }))
+    .sort((a, b) => Number(b.impactCritical) - Number(a.impactCritical) || b.changeIds.length - a.changeIds.length);
+  const critical = clarificationQueue.filter((q) => q.impactCritical);
+  if (critical.length) push('warning', 'Clarification needed', `${critical.reduce((n, q) => n + q.changeIds.length, 0)} impact-relevant clarification answer(s) outstanding across ${new Set(critical.flatMap((q) => q.changeIds)).size} selected change(s).`, 'change-identification');
+  const templateUpdates = acts.filter((c) => c.source === 'template' && c.templateId && (c.templateVersion ?? 1) < latestVersionNumber(c.templateId)).map((c) => c.id);
+  if (templateUpdates.length) push('info', 'Library update', `${templateUpdates.length} selected change(s) use an older library template version. They keep their version until you update them.`, 'change-identification');
+  if (suggestedMilestones.size) push('info', 'Milestone suggestion', `${suggestedMilestones.size} unselected milestone(s) are typical for the selected changes. Review them in the Milestone Planner — they are not activated automatically.`, 'milestone-planner');
+  const pendingImports = (s.importQueue ?? []).filter((r) => r.status === 'pending').length;
+  if (pendingImports) push('warning', 'Import review', `${pendingImports} imported change row(s) await confirmation or custom creation.`, 'change-identification');
+  const unreviewed = acts.filter((c) => c.source === 'template' && !c.defaultsReviewed).length;
+  if (unreviewed) push('info', 'Library defaults', `${unreviewed} selected change(s) still use library-default descriptions; generated messages mark them with [CONFIRM — LIBRARY DEFAULT DESCRIPTION].`, 'change-identification');
+
   const order = { critical: 0, warning: 1, info: 2 };
   issues.sort((a, b) => order[a.severity] - order[b.severity]);
 
-  const d: Derived = { selectedDims, selectedStakeholders, activeMilestones, impactRecs, impacts, audienceRecs, comms, commById, activeComms, commsByCell, suggestions, artifactStates, issues };
-  cache.set(s, d);
+  const d: Derived = { selectedDims, selectedStakeholders, activeMilestones, impactRecs, impacts, audienceRecs, comms, commById, activeComms, commsByCell, suggestions, artifactStates, issues,
+    activeChangeRecords: acts, suggestedMilestones, clarificationQueue, templateUpdates };
+  cache.set(s, { rev: catalogueRevision(), d });
   return d;
 }

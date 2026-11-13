@@ -67,7 +67,7 @@ export function contextFacts(ctx: MessageContext) {
 }
 
 const changeLine = (c: ChangeRecord) =>
-  `${c.title}${c.toBe ? ` — To-Be: ${c.toBe}` : ''}${c.effectiveDate ? ` (effective ${fmtDate(c.effectiveDate)})` : ''}`;
+  `${c.title}${c.toBe ? ` — To-Be: ${c.toBe}` : ''}${c.effectiveDate ? ` (effective ${fmtDate(c.effectiveDate)})` : ''}${c.source === 'template' && !c.defaultsReviewed ? ' [CONFIRM — LIBRARY DEFAULT DESCRIPTION]' : ''}`;
 
 export function defaultTone(ctx: MessageContext): Tone {
   const lens = lensFor(ctx.st.archetype);

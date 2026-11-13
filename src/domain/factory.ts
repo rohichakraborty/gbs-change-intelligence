@@ -1,5 +1,5 @@
 import type {
-  CommunicationRecord, Engagement, EngagementState, GovernanceRole, Milestone, Stakeholder, StakeholderGroup, TimeUnit,
+  ChangeRecord, CommunicationRecord, Engagement, EngagementState, GovernanceRole, Milestone, Stakeholder, StakeholderGroup, TimeUnit,
 } from './types';
 import {
   CHANNEL_LIBRARY, COMMUNICATOR_ROLES, COMM_TYPES, DEFAULT_DIMENSIONS, DEFAULT_FRAMEWORK, MILESTONE_LIBRARY, PHASES,
@@ -8,7 +8,7 @@ import {
 import { nowIso, uid } from './util';
 import type { AudienceRec } from '../engine/audience';
 
-export const SCHEMA_VERSION = 1;
+export const SCHEMA_VERSION = 2;
 
 export const DEFAULT_GOVERNANCE: { title: string; role: string | null }[] = [
   { title: 'Executive Sponsor', role: 'cr_ceo' },
@@ -83,7 +83,26 @@ export function createBlankState(name = 'New engagement'): EngagementState {
     commTypes: COMM_TYPES.map((c) => ({ ...c })), communicatorRoles: COMMUNICATOR_ROLES.map((r) => ({ ...r })),
     framework: JSON.parse(JSON.stringify(DEFAULT_FRAMEWORK)), channels: CHANNEL_LIBRARY.map((c) => ({ ...c, attrs: { ...c.attrs } })),
     comms: [], artifacts: [], kt: [], audit: [], dismissedSuggestions: {}, counters: { change: 0, comm: 0, artifact: 0 },
+    changeAssessments: {}, templateSnapshots: {}, importQueue: [], lastPropagation: null,
   };
+}
+
+/** A consultant-authored change (secondary to library selection). */
+export function customChange(s: EngagementState, dimensionId: string): ChangeRecord {
+  s.counters.change = Math.max(s.counters.change + 1, s.changes.length + 1);
+  const now = nowIso();
+  return {
+    id: uid('chg'), code: `CHG-${String(s.counters.change).padStart(3, '0')}`, dimensionId, title: 'New custom change', description: '', asIs: '', toBe: '',
+    notChanging: '', rationale: '', functionName: '', geography: '', process: '', effectiveDate: null, milestoneId: null, waveIds: [], peopleAffected: null,
+    owner: '', operationalImpact: '', behaviouralImpact: '', dependencies: '', assumptions: '', evidence: '', status: 'draft',
+    source: 'custom', templateId: null, templateVersion: null, active: true, functionTags: [], processTags: [], entities: [], clarificationAnswers: {},
+    scopeOverrides: [], customDescription: '', defaultsReviewed: true, selectedAt: now, lastModifiedAt: now,
+  };
+}
+
+export function nextChangeCode(s: EngagementState): string {
+  s.counters.change = Math.max(s.counters.change + 1, s.changes.length + 1);
+  return `CHG-${String(s.counters.change).padStart(3, '0')}`;
 }
 
 export function commFromRec(s: EngagementState, ar: AudienceRec): CommunicationRecord {

@@ -1,17 +1,28 @@
 // ---------------------------------------------------------------------------
 // Impact assessment engine — deterministic, explainable rules (Layer 1).
-// Produces a recommendation for every selected stakeholder × selected dimension.
+// Assessments are calculated per stakeholder × selected change, then aggregated
+// into the executive stakeholder × dimension matrix. Template-derived changes use
+// the template's structured relationship rules; custom changes use keyword rules.
 // ---------------------------------------------------------------------------
 import type {
-  Archetype, ChangeRecord, Directness, EngagementState, ImpactAssessment, ImpactClass, Severity, Stakeholder,
+  Archetype, ChangeLevelDecision, ChangeRecord, Directness, EngagementState, ImpactAssessment, ImpactClass, Severity, Stakeholder,
 } from '../domain/types';
+import { getTemplate } from '../catalogue/registry';
+import { DIM_CODE_BY_ID } from '../catalogue/types';
+import { assessTemplatePair } from './templateImpact';
+
+export type HitKind = 'direct' | 'indirect' | 'governance' | 'awareness' | 'none' | 'unknown';
 
 export interface PairResult {
   changeId: string;
-  hit: 'direct' | 'indirect' | 'none' | 'unknown';
+  hit: HitKind;
   severity: Severity | null;
   text: string;
   ruleId: string;
+  source?: 'template' | 'keyword' | 'scope';
+  info?: string;
+  /** Consultant decision for this stakeholder × change × dimension, if any. */
+  decision?: ChangeLevelDecision | null;
 }
 
 export interface ImpactRec {
@@ -26,28 +37,46 @@ export interface ImpactRec {
   ruleIds: string[];
   confidence: 'high' | 'medium' | 'low';
   pairs: PairResult[];
+  governanceChangeIds: string[];
+  awarenessChangeIds: string[];
 }
 
 export interface EffectiveImpact {
   classification: ImpactClass;
   directness: Directness | null;
   severity: Severity | null;
+  /** 'consultant' when a cell-level decision exists; 'rule' otherwise (change-level decisions counted separately). */
   source: 'rule' | 'consultant';
   status: ImpactAssessment['status'];
-  conflict: boolean; // consultant decision differs from the current recommendation it was based on
+  /** Supported by consultant decisions (cell-level, or change-level for the contributing changes). */
+  confirmed: boolean;
+  conflict: boolean;
   changeIds: string[];
+  governanceChangeIds: string[];
+  awarenessChangeIds: string[];
+  changeDecisions: number;
 }
 
-const IMPLICIT_FUNCTION: Partial<Record<Archetype, string>> = {
+export const IMPLICIT_FUNCTION: Partial<Record<Archetype, string>> = {
   cxo_finance: 'Finance & Accounting', cxo_hr: 'Human Resources', cxo_it: 'IT', procurement: 'Procurement',
-  finance_support: 'Finance & Accounting', payroll: 'Human Resources',
+  finance_support: 'Finance & Accounting', payroll: 'Human Resources', cxo_procurement: 'Procurement', cxo_data: 'Data & Analytics',
 };
 
-/** Archetypes whose impact depends on belonging to the changing function. */
-const FUNCTION_BOUND = new Set<Archetype>([
-  'cxo_finance', 'cxo_hr', 'cxo_it', 'function_head', 'process_owner', 'transferring', 'retained_modified', 'redeployed',
+/** Archetypes whose impact depends on belonging to the changing function (custom-change keyword rules). */
+export const FUNCTION_BOUND = new Set<Archetype>([
+  'cxo_finance', 'cxo_hr', 'cxo_it', 'cxo_procurement', 'function_head', 'process_owner', 'transferring', 'retained_modified', 'redeployed',
   'team_lead', 'sme', 'retained_leader', 'retained_ops', 'retained_unchanged',
 ]);
+
+/** Applicable functions of a change ([] = cross-functional / all in-scope functions). */
+export function changeFunctions(c: ChangeRecord): string[] {
+  if (c.functionTags?.length) return c.functionTags;
+  return c.functionName ? [c.functionName] : [];
+}
+
+export function activeChanges(s: EngagementState): ChangeRecord[] {
+  return s.changes.filter((c) => c.active !== false);
+}
 
 interface Features {
   transfer: boolean; reporting: boolean; roles: boolean; system: boolean; supplier: boolean; customer: boolean;
@@ -74,14 +103,16 @@ export function changeFeatures(c: ChangeRecord): Features {
 const S = (responsibilities: number, relationships: number, tools: number, behaviours: number): Severity =>
   ({ responsibilities, relationships, tools, behaviours });
 
-function scopeMatch(st: Stakeholder, c: ChangeRecord): { ok: boolean; why: string; assumption?: string } {
+/** Geography and wave scope (function scope is checked per rule for templates, per archetype for custom changes). */
+export function scopeMatch(st: Stakeholder, c: ChangeRecord, checkFunction = true): { ok: boolean; why: string; assumption?: string } {
   const sFn = st.functionName || IMPLICIT_FUNCTION[st.archetype] || '';
-  if (FUNCTION_BOUND.has(st.archetype) && c.functionName && sFn && sFn !== c.functionName) {
-    return { ok: false, why: `${c.code} is scoped to ${c.functionName}; stakeholder sits in ${sFn}.` };
+  const fns = changeFunctions(c);
+  if (checkFunction && FUNCTION_BOUND.has(st.archetype) && fns.length && sFn && !fns.includes(sFn)) {
+    return { ok: false, why: `${c.code} is scoped to ${fns.join(', ')}; stakeholder sits in ${sFn}.` };
   }
   let assumption: string | undefined;
-  if (FUNCTION_BOUND.has(st.archetype) && c.functionName && !sFn) {
-    assumption = `No function recorded for this stakeholder — treated as within ${c.functionName} scope for ${c.code}.`;
+  if (checkFunction && FUNCTION_BOUND.has(st.archetype) && fns.length && !sFn) {
+    assumption = `No function recorded for this stakeholder — treated as within ${fns.join(', ')} scope for ${c.code}.`;
   }
   if (st.geography && c.geography) {
     const a = st.geography.toLowerCase(), b = c.geography.toLowerCase();
@@ -96,7 +127,7 @@ function scopeMatch(st: Stakeholder, c: ChangeRecord): { ok: boolean; why: strin
   return { ok: true, why: '', assumption };
 }
 
-type Hit = Omit<PairResult, 'changeId'>;
+type Hit = { hit: HitKind; severity: Severity | null; text: string; ruleId: string };
 const direct = (ruleId: string, sev: Severity, text: string): Hit => ({ hit: 'direct', severity: sev, text, ruleId });
 const indirect = (ruleId: string, sev: Severity, text: string): Hit => ({ hit: 'indirect', severity: sev, text, ruleId });
 const none = (ruleId: string, text: string): Hit => ({ hit: 'none', severity: null, text, ruleId });
@@ -221,89 +252,126 @@ const sevMax = (a: Severity | null, b: Severity | null): Severity | null => {
   return S(Math.max(a.responsibilities, b.responsibilities), Math.max(a.relationships, b.relationships), Math.max(a.tools, b.tools), Math.max(a.behaviours, b.behaviours));
 };
 
+const isImpact = (h: HitKind) => h === 'direct' || h === 'indirect';
+export const classOfHit = (h: HitKind): ImpactClass => (isImpact(h) ? 'impacted' : h === 'unknown' ? 'review' : 'not_impacted');
+
+/** Changes that can contribute to a dimension: custom changes in that dimension, and template changes whose rules reach it. */
+export function changesForDimension(s: EngagementState, dimensionId: string): ChangeRecord[] {
+  const code = DIM_CODE_BY_ID[dimensionId];
+  return activeChanges(s).filter((c) => {
+    if (c.source !== 'template') return c.dimensionId === dimensionId;
+    if (c.dimensionId === dimensionId) return true;
+    const t = getTemplate(c.templateId, c.templateVersion, s);
+    return !!t && !!code && t.rules.some((r) => r.dims.includes(code));
+  });
+}
+
 export function recommendImpact(s: EngagementState, st: Stakeholder, dimensionId: string): ImpactRec {
   const dim = s.dimensions.find((d) => d.id === dimensionId)!;
-  const changes = s.changes.filter((c) => c.dimensionId === dimensionId);
+  const changes = changesForDimension(s, dimensionId);
   const rec: ImpactRec = {
     classification: 'not_impacted', directness: null, severity: null, rationale: [], changeIds: [], assumptions: [],
-    gaps: [], evidence: [], ruleIds: [], confidence: 'medium', pairs: [],
+    gaps: [], evidence: [], ruleIds: [], confidence: 'medium', pairs: [], governanceChangeIds: [], awarenessChangeIds: [],
   };
   if (!changes.length) {
     rec.classification = 'review';
     rec.confidence = 'low';
-    rec.gaps.push(`No change records captured under "${dim.short}" — add change records before this cell can be assessed.`);
-    rec.rationale.push('Dimension is selected but has no specific change records.');
+    rec.gaps.push(`No changes selected or recorded under "${dim.short}" — select changes in Change Identification before this cell can be assessed.`);
+    rec.rationale.push('Dimension is selected but has no applicable change records.');
     return rec;
   }
   const dimCode = dim.isDefault ? dim.code : 'CUSTOM';
   let anyDirect = false, anyIndirect = false, anyUnknown = false, undocumented = false;
   for (const c of changes) {
-    const scope = scopeMatch(st, c);
-    let r: Hit;
-    if (!scope.ok) r = none('R-SCOPE', scope.why);
-    else if (dimCode === 'CUSTOM') r = unknown('R-CUSTOM', `Custom dimension "${dim.label}" has no default rules — consultant assessment required for ${c.code}.`);
-    else r = assessPair(st, c, dimCode);
-    if (scope.assumption && r.hit !== 'none') rec.assumptions.push(scope.assumption);
-    rec.pairs.push({ ...r, changeId: c.id });
-    if (r.hit === 'direct' || r.hit === 'indirect') {
-      if (r.hit === 'direct') anyDirect = true; else anyIndirect = true;
+    let r: Omit<PairResult, 'changeId'>;
+    let assumption: string | undefined;
+    if (c.source === 'template') {
+      const tr = assessTemplatePair(s, st, c, dimCode as 'OM');
+      r = tr.hit; assumption = tr.assumption;
+    } else {
+      const scope = scopeMatch(st, c);
+      assumption = scope.assumption;
+      if (!scope.ok) r = { ...none('R-SCOPE', scope.why), source: 'scope' };
+      else if (dimCode === 'CUSTOM') r = { ...unknown('R-CUSTOM', `Custom dimension "${dim.label}" has no default rules — consultant assessment required for ${c.code}.`), source: 'keyword' };
+      else r = { ...assessPair(st, c, dimCode), source: 'keyword' };
+    }
+    const decision = s.changeAssessments?.[`${st.id}|${c.id}|${dimensionId}`] ?? null;
+    if (assumption && r.hit !== 'none') rec.assumptions.push(assumption);
+    rec.pairs.push({ ...r, changeId: c.id, decision });
+    const effHit: HitKind = decision ? (decision.classification === 'impacted' ? (decision.directness ?? 'direct') : decision.classification === 'review' ? 'unknown' : 'none') : r.hit;
+    if (isImpact(effHit)) {
+      if (effHit === 'direct') anyDirect = true; else anyIndirect = true;
       rec.changeIds.push(c.id);
-      rec.rationale.push(`${c.code}: ${r.text}`);
+      rec.rationale.push(`${c.code}: ${decision ? `Consultant decision — ${decision.rationale}` : r.text}`);
       rec.ruleIds.push(r.ruleId);
       rec.severity = sevMax(rec.severity, r.severity);
-      if (!c.asIs.trim() || !c.toBe.trim()) { undocumented = true; rec.gaps.push(`${c.code} lacks a documented As-Is/To-Be — severity not scored.`); }
+      if (c.source !== 'template' && (!c.asIs.trim() || !c.toBe.trim())) { undocumented = true; rec.gaps.push(`${c.code} lacks a documented As-Is/To-Be — severity not scored.`); }
+      if (c.source === 'template' && !c.defaultsReviewed) rec.gaps.push(`${c.code} uses library-default descriptions — severity is template guidance until confirmed.`);
       if (c.evidence.trim()) rec.evidence.push(`${c.code}: ${c.evidence}`);
       if (c.assumptions.trim()) rec.assumptions.push(`${c.code}: ${c.assumptions}`);
       if (c.status !== 'confirmed') rec.gaps.push(`${c.code} is not yet confirmed (status: ${c.status.replace('_', ' ')}).`);
-    } else if (r.hit === 'unknown') {
+      if (r.info) rec.gaps.push(`${c.code}: ${r.info}`);
+    } else if (effHit === 'unknown') {
       anyUnknown = true;
       rec.changeIds.push(c.id);
       rec.ruleIds.push(r.ruleId);
-      rec.gaps.push(r.text);
+      rec.gaps.push(`${c.code}: ${r.info || r.text}`);
+    } else if (r.hit === 'governance' && !decision) {
+      rec.governanceChangeIds.push(c.id);
+    } else if (r.hit === 'awareness' && !decision) {
+      rec.awarenessChangeIds.push(c.id);
     }
   }
   if (anyDirect || anyIndirect) {
     rec.classification = 'impacted';
     rec.directness = anyDirect ? 'direct' : 'indirect';
     if (undocumented) rec.severity = null;
-    const allConfirmed = rec.changeIds.every((id) => s.changes.find((c) => c.id === id)?.status === 'confirmed');
-    rec.confidence = undocumented || anyUnknown ? 'low' : allConfirmed ? 'high' : 'medium';
+    const contributing = rec.changeIds.map((id) => s.changes.find((c) => c.id === id)).filter(Boolean) as ChangeRecord[];
+    const allConfirmed = contributing.every((c) => c.status === 'confirmed');
+    rec.confidence = undocumented || anyUnknown ? 'low' : allConfirmed && contributing.every((c) => c.source !== 'template' || c.defaultsReviewed) ? 'high' : 'medium';
   } else if (anyUnknown) {
     rec.classification = 'review';
     rec.confidence = 'low';
-    rec.rationale.push('Insufficient information to determine impact for at least one change record.');
+    rec.rationale.push('Insufficient information to determine impact for at least one change — see missing information.');
   } else {
     rec.classification = 'not_impacted';
-    const scoped = rec.pairs.filter((p) => p.ruleId === 'R-SCOPE');
+    const scoped = rec.pairs.filter((p) => p.ruleId === 'R-SCOPE' || p.source === 'scope');
     rec.rationale.push(scoped.length === rec.pairs.length
-      ? 'All change records in this dimension are outside this stakeholder\'s function, geography, or wave.'
-      : `No rule links this stakeholder to the ${changes.length} change record(s) in this dimension.`);
-    rec.pairs.slice(0, 3).forEach((p) => rec.rationale.push(`${s.changes.find((c) => c.id === p.changeId)?.code}: ${p.text}`));
+      ? 'All applicable changes in this dimension are outside this stakeholder\'s function, geography, or wave.'
+      : `No rule establishes an impact on this stakeholder from the ${changes.length} applicable change(s). Absence of a rule is not evidence of no impact — confirm before relying on it.`);
+    for (const p of rec.pairs.filter((x) => x.hit === 'governance' || x.hit === 'awareness').slice(0, 3)) {
+      rec.rationale.push(`${s.changes.find((c) => c.id === p.changeId)?.code}: ${p.hit === 'governance' ? 'Governance relationship (not an impact)' : 'Awareness relevance (not an impact)'} — ${p.text}`);
+    }
+    rec.pairs.filter((x) => x.hit === 'none').slice(0, 2).forEach((p) => rec.rationale.push(`${s.changes.find((c) => c.id === p.changeId)?.code}: ${p.text}`));
     rec.ruleIds = Array.from(new Set(rec.pairs.map((p) => p.ruleId)));
-    const allConfirmed = changes.every((c) => c.status === 'confirmed');
-    rec.confidence = allConfirmed ? 'high' : 'medium';
+    rec.confidence = changes.every((c) => c.status === 'confirmed') ? 'medium' : 'low';
   }
   rec.assumptions = Array.from(new Set(rec.assumptions));
   rec.gaps = Array.from(new Set(rec.gaps));
   return rec;
 }
 
+/**
+ * Effective cell value. Precedence: cell-level consultant decision → change-level consultant
+ * decisions → rule recommendation. "Not impacted" is confirmed only when every contributing
+ * change has a consultant decision supporting it (or the cell was explicitly accepted).
+ */
 export function effectiveImpact(rec: ImpactRec, a: ImpactAssessment | undefined): EffectiveImpact {
+  const changeDecisions = rec.pairs.filter((p) => p.decision).length;
+  const base = { changeIds: rec.changeIds, governanceChangeIds: rec.governanceChangeIds, awarenessChangeIds: rec.awarenessChangeIds, changeDecisions };
   if (a?.decision) {
     return {
-      classification: a.decision.classification,
-      directness: a.decision.directness,
-      severity: a.decision.severity,
-      source: 'consultant',
-      status: a.status,
-      conflict: a.decision.basedOnRec !== null && a.decision.basedOnRec !== rec.classification,
-      changeIds: rec.changeIds,
+      ...base, classification: a.decision.classification, directness: a.decision.directness, severity: a.decision.severity, source: 'consultant',
+      status: a.status, confirmed: a.status === 'confirmed', conflict: a.decision.basedOnRec !== null && a.decision.basedOnRec !== rec.classification,
     };
   }
-  return {
-    classification: rec.classification, directness: rec.directness, severity: rec.severity, source: 'rule',
-    status: a?.status ?? (rec.classification === 'review' ? 'needs_review' : 'proposed'), conflict: false, changeIds: rec.changeIds,
-  };
+  const pairConflict = rec.pairs.some((p) => p.decision && p.decision.basedOnRec !== null && p.decision.basedOnRec !== classOfHit(p.hit));
+  let confirmed = false;
+  if (rec.classification === 'impacted') confirmed = rec.pairs.some((p) => p.decision?.classification === 'impacted');
+  else if (rec.classification === 'not_impacted') confirmed = rec.pairs.length > 0 && rec.pairs.every((p) => p.decision?.classification === 'not_impacted');
+  if (a?.status === 'confirmed' && rec.classification !== 'review') confirmed = true;
+  const status: ImpactAssessment['status'] = confirmed ? 'confirmed' : a?.status && a.status !== 'confirmed' ? a.status : rec.classification === 'review' ? 'needs_review' : 'proposed';
+  return { ...base, classification: rec.classification, directness: rec.directness, severity: rec.severity, source: 'rule', status, confirmed, conflict: pairConflict };
 }
 
 export function severityScore(sev: Severity | null, w: EngagementState['engagement']['settings']['weights']): number | null {

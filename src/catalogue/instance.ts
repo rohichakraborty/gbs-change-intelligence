@@ -1,0 +1,65 @@
+// Engagement-specific change instances created from templates, with defaults
+// taken from Engagement Setup. Also: duplicate detection and import matching.
+import type { ChangeRecord, EngagementState } from '../domain/types';
+import { nowIso, uid } from '../domain/util';
+import { listLatestTemplates } from './registry';
+import { DIM_ID, type ChangeTemplate } from './types';
+
+/** Default scope for a template in this engagement. */
+export function defaultScope(s: EngagementState, t: ChangeTemplate) {
+  const engFns = s.engagement.functions.map((f) => f.name);
+  const specific = t.functionTags.filter((f) => f !== 'Enterprise');
+  let functionTags: string[];
+  if (t.functionTags.includes('Enterprise')) functionTags = []; // cross-functional: all in-scope functions
+  else {
+    const inScope = specific.filter((f) => engFns.includes(f));
+    functionTags = inScope.length ? inScope : specific;
+  }
+  const waveIds = functionTags.length
+    ? s.waves.filter((w) => w.functions.some((f) => functionTags.includes(f))).map((w) => w.id)
+    : [];
+  return { functionTags, functionName: functionTags[0] ?? '', waveIds };
+}
+
+export function instanceFromTemplate(s: EngagementState, t: ChangeTemplate, code: string): ChangeRecord {
+  const sc = defaultScope(s, t);
+  const now = nowIso();
+  return {
+    id: uid('chg'), code, dimensionId: DIM_ID[t.primaryChangeDimension], title: t.title, description: t.description,
+    asIs: t.typicalAsIs, toBe: t.typicalToBe, notChanging: '', rationale: '', functionName: sc.functionName,
+    geography: '', process: t.processTags.join(', '), effectiveDate: null, milestoneId: null, waveIds: sc.waveIds, peopleAffected: null,
+    owner: '', operationalImpact: '', behaviouralImpact: '', dependencies: '',
+    assumptions: 'Library default: description, As-Is and To-Be are typical for this change type and must be confirmed for this engagement.',
+    evidence: `Selected from GBS Change Library template ${t.templateId} v${t.templateVersion}.`, status: 'draft',
+    source: 'template', templateId: t.templateId, templateVersion: t.templateVersion, active: true, functionTags: sc.functionTags,
+    processTags: [...t.processTags], entities: [], clarificationAnswers: {}, scopeOverrides: [], customDescription: '', defaultsReviewed: false,
+    selectedAt: now, lastModifiedAt: now,
+  };
+}
+
+const STOP = new Set(['the', 'a', 'an', 'to', 'of', 'and', 'or', 'for', 'in', 'is', 'are', 'be', 'on', 'with', 'by', 'from', 'new', 'into', 'changes', 'change', 'changed', 'gbs']);
+export function tokens(s: string): Set<string> {
+  return new Set(s.toLowerCase().replace(/[^a-z0-9 ]+/g, ' ').split(/\s+/).filter((w) => w.length > 1 && !STOP.has(w)).map((w) => w.replace(/(ing|ed|es|s)$/, '')));
+}
+export function similarity(a: string, b: string): number {
+  const A = tokens(a), B = tokens(b);
+  if (!A.size || !B.size) return 0;
+  let n = 0;
+  for (const x of A) if (B.has(x)) n++;
+  return n / (A.size + B.size - n);
+}
+
+/** Best template matches for free text (used by import). */
+export function matchTemplates(text: string, fnHint = ''): { template: ChangeTemplate; score: number }[] {
+  return listLatestTemplates().filter((t) => t.active).map((t) => {
+    let score = Math.max(similarity(text, t.title), similarity(text, `${t.title} ${t.description}`) * 0.9);
+    if (fnHint && t.functionTags.some((f) => f.toLowerCase().includes(fnHint.toLowerCase().slice(0, 4)))) score += 0.05;
+    return { template: t, score: Math.min(1, score) };
+  }).sort((a, b) => b.score - a.score).slice(0, 5);
+}
+
+/** Active changes that look like duplicates of this one (same template, or very similar titles). */
+export function duplicateCandidates(s: EngagementState, c: ChangeRecord): ChangeRecord[] {
+  return s.changes.filter((o) => o.id !== c.id && o.active && (
+    (c.templateId && o.templateId === c.templateId) || similarity(o.title, c.title) >= 0.6));
+}
