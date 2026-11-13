@@ -8,7 +8,8 @@ import type { Archetype, ArtifactType, Objective } from '../domain/types';
 export type DimCode = 'OM' | 'PR' | 'OS' | 'TE' | 'IM';
 
 /** How a stakeholder role relates to a change. Only direct/indirect are impacts. */
-export type RelationKind = 'direct' | 'indirect' | 'governance' | 'awareness';
+/** direct/indirect are impacts; governance/awareness are communication relevance; review = depends on an unknown. */
+export type RelationKind = 'direct' | 'indirect' | 'governance' | 'awareness' | 'review';
 
 /** `$cxo` resolves to the accountable functional executive of the change's functions. */
 export type RoleToken = Archetype | '$cxo';
@@ -29,6 +30,18 @@ export interface RoleRule {
   when: { q: string; in: string[] } | null;
   /** What must be confirmed before the relationship can be treated as established. */
   info: string;
+  /** AI-generated rules name a role instead of a role type; it is matched to the Stakeholder Register via role mappings. */
+  roleKey?: string;
+  roleLabel?: string;
+}
+
+/** A stakeholder role named by an AI-generated change (function-agnostic). */
+export interface AIRole {
+  key: string;
+  role: string;
+  archetype: string;
+  functionSpecific: boolean;
+  description: string;
 }
 
 export interface ClarificationOption {
@@ -51,7 +64,7 @@ export interface ChangeTemplate {
   templateId: string;
   templateVersion: number;
   active: boolean;
-  origin: 'builtin' | 'custom';
+  origin: 'builtin' | 'custom' | 'ai';
   title: string;
   primaryChangeDimension: DimCode;
   secondaryImpactDimensions: DimCode[];
@@ -78,6 +91,11 @@ export interface ChangeTemplate {
   typicalArtifactTypes: ArtifactType[];
   clarificationQuestions: string[]; // question ids
   employmentImplication: boolean;
+  /** AI-generated templates only. */
+  aiRoles?: AIRole[];
+  changeMechanisms?: string[];
+  assumptions?: string[];
+  provenance?: { generationId: string; provider: string; model: string; generatedAt: string; requiresValidation: boolean; packId?: string; packVersion?: number };
 }
 
 /** Shared-catalogue changes made through Library maintenance (all versions are kept). */

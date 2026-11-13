@@ -48,13 +48,14 @@ export function listLatestTemplates(): ChangeTemplate[] {
 }
 
 const ruleSchema = z.object({
-  id: z.string(), roles: z.array(z.string()).min(1), kind: z.enum(['direct', 'indirect', 'governance', 'awareness']), fnScoped: z.boolean(),
+  id: z.string(), roles: z.array(z.string()).min(1), kind: z.enum(['direct', 'indirect', 'governance', 'awareness', 'review']), fnScoped: z.boolean(),
   dims: z.array(z.enum(['OM', 'PR', 'OS', 'TE', 'IM'])), mechanism: z.string(), severity: z.array(z.number().min(0).max(3)).length(4).nullable(),
   when: z.object({ q: z.string(), in: z.array(z.string()) }).nullable(), info: z.string(),
+  roleKey: z.string().optional(), roleLabel: z.string().optional(),
 });
 
 export const templateSchema = z.object({
-  templateId: z.string().min(1), templateVersion: z.number().int().min(1), active: z.boolean(), origin: z.enum(['builtin', 'custom']),
+  templateId: z.string().min(1), templateVersion: z.number().int().min(1), active: z.boolean(), origin: z.enum(['builtin', 'custom', 'ai']),
   title: z.string().min(1), primaryChangeDimension: z.enum(['OM', 'PR', 'OS', 'TE', 'IM']), secondaryImpactDimensions: z.array(z.string()),
   functionTags: z.array(z.string()), processTags: z.array(z.string()), applicableTransformationTypes: z.array(z.string()),
   description: z.string(), typicalAsIs: z.string(), typicalToBe: z.string(), rules: z.array(ruleSchema),

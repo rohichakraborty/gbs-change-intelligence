@@ -59,7 +59,7 @@ export function LibraryMaintenance() {
           </div>
         </Section>
         {!draft ? <Empty title="Select a template">View its relationship rules and version history, or enable editing to change it.</Empty> : (
-          <Section title={`${draft.templateId} — ${draft.title}`} hint={<><Prov kind="rule" label={draft.origin === 'builtin' ? 'Built-in template' : 'Custom template'} /> version {draft.templateVersion || 'new'}</>}
+          <Section title={`${draft.templateId} — ${draft.title}`} hint={<><Prov kind="rule" label={draft.origin === 'builtin' ? 'Built-in template' : draft.origin === 'ai' ? 'AI-generated template' : 'Custom template'} /> version {draft.templateVersion || 'new'}</>}
             actions={<>
               {draft.templateVersion > 0 && <Btn size="sm" disabled={!unlocked} onClick={async () => { await setTemplateDeprecated(draft.templateId, draft.active); toast(draft.active ? 'Template deprecated — existing selections keep working' : 'Template restored'); setDraft({ ...draft, active: !draft.active }); }}>{draft.active ? 'Deprecate' : 'Restore'}</Btn>}
               <Btn size="sm" variant="primary" icon={<Save size={13} />} disabled={!unlocked} onClick={async () => {
@@ -95,7 +95,7 @@ export function LibraryMaintenance() {
                       <div className="chips">{r.roles.map((role) => <span key={role} className="tag">{roleName(role)} <button className="btn ghost sm" style={{ padding: 0 }} aria-label="Remove role" onClick={() => setRule(i, { roles: r.roles.filter((x) => x !== role) })}>×</button></span>)}</div>
                       <select className="select" value="" onChange={(e) => e.target.value && setRule(i, { roles: [...r.roles, e.target.value as Archetype] })} aria-label="Add role"><option value="">+ role</option>{ROLE_OPTIONS.filter((x) => !r.roles.includes(x as Archetype)).map((x) => <option key={x} value={x}>{roleName(x)}</option>)}</select>
                     </td>
-                    <td><select className="select" value={r.kind} onChange={(e) => setRule(i, { kind: e.target.value as RelationKind })} aria-label="Relationship"><option value="direct">Direct impact</option><option value="indirect">Indirect impact</option><option value="governance">Governance</option><option value="awareness">Awareness</option></select></td>
+                    <td><select className="select" value={r.kind} onChange={(e) => setRule(i, { kind: e.target.value as RelationKind })} aria-label="Relationship"><option value="direct">Direct impact</option><option value="indirect">Indirect impact</option><option value="governance">Governance</option><option value="awareness">Awareness</option><option value="review">Requires review</option></select></td>
                     <td><input type="checkbox" checked={r.fnScoped} onChange={(e) => setRule(i, { fnScoped: e.target.checked })} aria-label="Function scoped" /></td>
                     <td style={{ minWidth: 120 }}><Chips options={(['OM', 'PR', 'OS', 'TE', 'IM'] as DimCode[]).map((k) => ({ value: k, label: k }))} value={r.dims} onChange={(v) => setRule(i, { dims: v as DimCode[] })} /></td>
                     <td style={{ minWidth: 170 }}>

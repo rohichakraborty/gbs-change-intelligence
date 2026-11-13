@@ -1,5 +1,5 @@
 import { memo, useMemo, useState } from 'react';
-import { ChevronDown, ChevronRight, Info, Search, CheckSquare, Square, ListChecks, HelpCircle, Layers } from 'lucide-react';
+import { ChevronDown, ChevronRight, Info, Search, CheckSquare, Square, ListChecks, HelpCircle, Layers, Sparkles } from 'lucide-react';
 import { useApp } from '../../store/store';
 import type { ChangeRecord } from '../../domain/types';
 import { listLatestTemplates } from '../../catalogue/registry';
@@ -15,7 +15,8 @@ const DIMS: DimCode[] = ['OM', 'PR', 'OS', 'TE', 'IM'];
 export function useSelection() {
   const s = useApp((x) => x.current)!;
   useApp((x) => x.catalogueRev);
-  const templates = listLatestTemplates();
+  // Library templates plus engagement-private change-pack templates (published packs are already in the library).
+  const templates = [...listLatestTemplates(), ...s.changePacks.filter((p) => p.status === 'private').flatMap((p) => p.templates)];
   const byTemplate = useMemo(() => {
     const m = new Map<string, ChangeRecord>();
     for (const c of s.changes) if (c.templateId && c.active) m.set(c.templateId, c);
@@ -30,7 +31,7 @@ export function functionOrder(engFns: string[]): string[] {
   return ['Enterprise', ...all.filter((f) => f !== 'Enterprise' && engFns.includes(f)), ...all.filter((f) => f !== 'Enterprise' && !engFns.includes(f))];
 }
 
-export function ChangeLibrary({ onReview, onClarify }: { onReview: () => void; onClarify: () => void }) {
+export function ChangeLibrary({ onReview, onClarify, onGenerate }: { onReview: () => void; onClarify: () => void; onGenerate?: (fn: string) => void }) {
   const { s, templates, byTemplate } = useSelection();
   const inspect = useApp((x) => x.inspect);
   const inspector = useApp((x) => x.inspector);
@@ -124,7 +125,10 @@ export function ChangeLibrary({ onReview, onClarify }: { onReview: () => void; o
               <Select value={proc} placeholder="All processes / towers" options={processes.map((p) => ({ value: p, label: p }))} onChange={setProc} />
               <Select value={selState} options={[{ value: 'all', label: 'Selected and unselected' }, { value: 'selected', label: 'Selected only' }, { value: 'unselected', label: 'Unselected only' }]} onChange={(v) => setSelState(v as typeof selState)} />
             </div>
-            {!visible.length ? <Empty title="No changes match these filters">Try another function, dimension, or search term.</Empty> : groupList.map(([k, list]) => {
+            {!visible.length ? (fn !== 'all' && fn !== 'scope' && fn !== 'Enterprise' && !templates.some((t) => t.functionTags.includes(fn)) ?
+              <Empty title={`The library has no templates for ${fn} yet`} actions={onGenerate && <Btn variant="teal" icon={<Sparkles size={14} />} onClick={() => onGenerate(fn)}>Generate changes for {fn} with AI</Btn>}>
+                Generate candidate changes with AI from the engagement context, or add a custom change in the Change Register. Enterprise-wide changes still apply — see “In-scope functions”.</Empty>
+              : <Empty title="No changes match these filters" actions={onGenerate && fn !== 'all' && fn !== 'scope' ? <Btn icon={<Sparkles size={14} />} onClick={() => onGenerate(fn)}>Generate more for {FUNCTION_SHORT[fn] ?? fn} with AI</Btn> : undefined}>Try another function, dimension, or search term.</Empty>) : groupList.map(([k, list]) => {
               const nSel = list.filter((t) => byTemplate.has(t.templateId)).length;
               const isCollapsed = collapsed.has(k);
               return (
@@ -164,7 +168,7 @@ export function ChangeLibrary({ onReview, onClarify }: { onReview: () => void; o
 }
 
 const TemplateRow = memo(function TemplateRow({ t, change, focused, pending, onToggle, onDetails }: { t: ChangeTemplate; change?: ChangeRecord; focused: boolean; pending: number; onToggle: (on: boolean) => void; onDetails: () => void }) {
-  const roles = [...t.potentialDirectImpactRoles.slice(0, 3)];
+  const roles = t.origin === 'ai' ? t.rules.filter((r) => r.kind === 'direct').map((r) => r.roleLabel ?? '').filter(Boolean).slice(0, 3) : [...t.potentialDirectImpactRoles.slice(0, 3)];
   return (
     <div className={`lib-item ${change ? 'on' : ''} ${focused ? 'focus' : ''}`}>
       <input type="checkbox" checked={!!change} onChange={(e) => onToggle(e.target.checked)} aria-label={`Select ${t.title}`} style={{ marginTop: 3 }} />
@@ -173,6 +177,7 @@ const TemplateRow = memo(function TemplateRow({ t, change, focused, pending, onT
         <div className="desc">{t.description}</div>
         <div className="meta">
           <span className="tag dim" title={`Primary dimension; also reaches ${t.secondaryImpactDimensions.join(', ') || 'no other dimension'}`}>{t.primaryChangeDimension}{t.secondaryImpactDimensions.length ? `+${t.secondaryImpactDimensions.join('+')}` : ''}</span>
+          {t.origin === 'ai' && <Badge tone="ai">{t.provenance?.packId ? `AI · pack v${t.provenance.packVersion}` : 'AI-generated'}</Badge>}
           {t.functionTags.map((f) => <span key={f} className="tag">{FUNCTION_SHORT[f] ?? f}</span>)}
           {t.processTags.slice(0, 2).map((p) => <span key={p} className="tag">{p}</span>)}
           {roles.map((r) => <span key={r} className="tag role" title="Potential relationship — evaluated against scope and clarifications">{r}</span>)}

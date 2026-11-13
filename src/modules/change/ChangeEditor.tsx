@@ -157,16 +157,16 @@ export function TemplateDetail({ templateId }: { templateId: string }) {
 }
 
 function TemplateRelations({ t }: { t: ChangeTemplate }) {
-  const kinds: [string, string][] = [['direct', 'Potentially directly impacted'], ['indirect', 'Potentially indirectly impacted'], ['governance', 'Governance involvement'], ['awareness', 'Potential communication / awareness audiences']];
+  const kinds: [string, string][] = [['direct', 'Potentially directly impacted'], ['indirect', 'Potentially indirectly impacted'], ['governance', 'Governance involvement'], ['awareness', 'Potential communication / awareness audiences'], ['review', 'Requires review (confirm whether it applies)']];
   return (
-    <div className="insp-block rec"><h4>Stakeholder relationships <Prov kind="rule" label="Candidate" /></h4>
+    <div className="insp-block rec"><h4>Stakeholder relationships <Prov kind="rule" label={t.origin === 'ai' ? 'AI-generated candidate' : 'Candidate'} /></h4>
       {kinds.map(([k, label]) => {
         const rules = t.rules.filter((r) => r.kind === k);
         if (!rules.length) return null;
         return (
           <div key={k} style={{ marginBottom: 8 }}>
             <div className="small strong">{label}</div>
-            <ul className="clean tiny">{rules.map((r) => <li key={r.id}><strong>{r.roles.map(roleLabel).join(', ')}</strong>{r.fnScoped ? ' (in the change’s functions)' : ''} — {r.mechanism}{r.when ? <em className="muted"> Only if “{QUESTIONS[r.when.q]?.text}” = {r.when.in.map((o) => QUESTIONS[r.when!.q]?.options.find((x) => x.id === o)?.label ?? o).join(' / ')}.</em> : null} <span className="muted mono">[{r.id} · {r.dims.join('/')}]</span></li>)}</ul>
+            <ul className="clean tiny">{rules.map((r) => <li key={r.id}><strong>{r.roleLabel ?? r.roles.map(roleLabel).join(', ')}</strong>{r.roleLabel && <span className="muted"> (AI-named role, matched via the Stakeholder Register)</span>}{r.fnScoped && !r.roleKey ? ' (in the change’s functions)' : ''} — {r.mechanism}{r.when ? <em className="muted"> Only if “{QUESTIONS[r.when.q]?.text}” = {r.when.in.map((o) => QUESTIONS[r.when!.q]?.options.find((x) => x.id === o)?.label ?? o).join(' / ')}.</em> : null} <span className="muted mono">[{r.id} · {r.dims.join('/')}]</span></li>)}</ul>
           </div>
         );
       })}

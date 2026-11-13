@@ -24,7 +24,7 @@ export const relationLabel = (h: HitKind) => LABEL[h];
 
 type PairOut = { hit: Omit<PairResult, 'changeId'>; assumption?: string };
 type DimMap = Partial<Record<DimCode, PairOut>>;
-interface CacheEntry { rev: number; fns: unknown; snaps: unknown; byDim: DimMap; noRuleText: PairOut }
+interface CacheEntry { rev: number; fns: unknown; snaps: unknown; roles: unknown; byDim: DimMap; noRuleText: PairOut }
 const cache = new WeakMap<ChangeRecord, WeakMap<Stakeholder, CacheEntry>>();
 
 function cxoTokens(s: EngagementState, c: ChangeRecord): Archetype[] {
@@ -40,20 +40,24 @@ function evaluate(s: EngagementState, st: Stakeholder, c: ChangeRecord, t: Chang
   const byDim: DimMap = {};
   const scope = scopeMatch(st, c, false);
   const tag = `${t.templateId} v${t.templateVersion}`;
-  const sourceNote = `Source: GBS Change Library template ${tag}${st.roles.decisionMaker || st.roles.approver || st.roles.sponsor ? ' + stakeholder governance role flags' : ''}.`;
+  const sourceNote = t.origin === 'ai' ? `Source: AI-generated change (${t.provenance?.model ?? 'model'}, ${t.provenance?.generatedAt?.slice(0, 10) ?? ''}) — not client evidence${st.roles.decisionMaker || st.roles.approver || st.roles.sponsor ? '; stakeholder governance role flags' : ''}.` : `Source: GBS Change Library template ${tag}${st.roles.decisionMaker || st.roles.approver || st.roles.sponsor ? ' + stakeholder governance role flags' : ''}.`;
   if (!scope.ok) {
     const out: PairOut = { hit: { hit: 'none', severity: null, text: scope.why, ruleId: 'R-SCOPE', source: 'scope' } };
     for (const d of [t.primaryChangeDimension, ...t.secondaryImpactDimensions]) byDim[d] = out;
     return { byDim, noRuleText: out };
   }
   const cxo = cxoTokens(s, c);
+  // Function-agnostic role matching for AI-generated rules: role key -> confirmed stakeholder.
+  const mapped = new Map<string, string>();
+  for (const r of s.roleSuggestions ?? []) if ((r.status === 'mapped' || r.status === 'added') && r.stakeholderId) mapped.set(r.key, r.stakeholderId);
   const fns = changeFunctions(c);
   const sFn = st.functionName || IMPLICIT_FUNCTION[st.archetype] || '';
   for (const r of t.rules) {
-    const matches = r.roles.some((role) => (role === '$cxo' ? cxo.includes(st.archetype) : role === st.archetype));
+    const matches = r.roleKey ? mapped.get(r.roleKey) === st.id : r.roles.some((role) => (role === '$cxo' ? cxo.includes(st.archetype) : role === st.archetype));
     if (!matches) continue;
+    const roleNote = r.roleKey ? ` (AI-suggested role "${r.roleLabel ?? r.roleKey}", mapped to ${st.roleName})` : '';
     let assumption: string | undefined;
-    if (r.fnScoped && fns.length) {
+    if (r.fnScoped && fns.length && !r.roleKey) {
       if (sFn && !fns.includes(sFn)) {
         const out: PairOut = { hit: { hit: 'none', severity: null, text: `${c.code} applies to ${fns.join(', ')}; ${st.roleName} sits in ${sFn} (rule ${r.id}).`, ruleId: r.id, source: 'scope' } };
         for (const d of r.dims) if (!byDim[d] || RANK[byDim[d]!.hit.hit] < RANK.none) byDim[d] = out;
@@ -61,9 +65,9 @@ function evaluate(s: EngagementState, st: Stakeholder, c: ChangeRecord, t: Chang
       }
       if (!sFn) assumption = `No function recorded for ${st.roleName} — treated as within ${fns.join(', ')} scope for ${c.code}.`;
     }
-    let hit: HitKind = r.kind;
-    let text = `${LABEL[r.kind]}: ${r.mechanism} ${sourceNote}`;
-    let info = r.info;
+    let hit: HitKind = r.kind === 'review' ? 'unknown' : r.kind;
+    let text = `${LABEL[hit]}${roleNote}: ${r.mechanism} ${sourceNote}`;
+    let info = r.kind === 'review' ? r.info || `Confirm whether this applies: ${r.mechanism}` : r.info;
     if (r.when) {
       const ans = c.clarificationAnswers?.[r.when.q];
       const qq = QUESTIONS[r.when.q];
@@ -71,7 +75,7 @@ function evaluate(s: EngagementState, st: Stakeholder, c: ChangeRecord, t: Chang
         if (!qq?.impactCritical) continue;
         if (r.kind === 'governance' || r.kind === 'awareness') continue; // non-impact relationships do not create review cells
         hit = 'unknown';
-        text = `Requires further assessment: rule ${r.id} (${LABEL[r.kind].toLowerCase()} — ${r.mechanism}) depends on the unanswered clarification "${qq?.text ?? r.when.q}". ${sourceNote}`;
+        text = `Requires further assessment: rule ${r.id} (${LABEL[hit].toLowerCase()} — ${r.mechanism}) depends on the unanswered clarification "${qq?.text ?? r.when.q}". ${sourceNote}`;
         info = `Answer the clarification "${qq?.text ?? r.when.q}"${ans === 'skip' ? ' (skipped by consultant)' : ''}.`;
       } else if (!r.when.in.includes(ans)) {
         continue;
@@ -96,9 +100,9 @@ export function assessTemplatePair(s: EngagementState, st: Stakeholder, c: Chang
   let byStake = cache.get(c);
   if (!byStake) { byStake = new WeakMap(); cache.set(c, byStake); }
   let e = byStake.get(st);
-  if (!e || e.rev !== catalogueRevision() || e.fns !== s.engagement.functions || e.snaps !== s.templateSnapshots) {
+  if (!e || e.rev !== catalogueRevision() || e.fns !== s.engagement.functions || e.snaps !== s.templateSnapshots || e.roles !== s.roleSuggestions) {
     const r = evaluate(s, st, c, t);
-    e = { rev: catalogueRevision(), fns: s.engagement.functions, snaps: s.templateSnapshots, ...r };
+    e = { rev: catalogueRevision(), fns: s.engagement.functions, snaps: s.templateSnapshots, roles: s.roleSuggestions, ...r };
     byStake.set(st, e);
   }
   return e.byDim[dim] ?? e.noRuleText;

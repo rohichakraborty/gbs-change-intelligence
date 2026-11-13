@@ -4,11 +4,11 @@ import type { ChangeRecord, EngagementState, Stakeholder } from './types';
 import { STAKEHOLDER_LIBRARY } from './library';
 import { uid } from './util';
 
-export const CURRENT_SCHEMA = 2;
+export const CURRENT_SCHEMA = 3;
 
 export function migrateState(input: EngagementState): EngagementState {
   const s = input as EngagementState & Record<string, unknown>;
-  if ((s.schemaVersion ?? 1) >= CURRENT_SCHEMA && s.changeAssessments && s.importQueue) return s;
+  if ((s.schemaVersion ?? 1) >= CURRENT_SCHEMA && s.changeAssessments && s.importQueue && s.aiGenerations) return s;
   const changes = (s.changes ?? []).map((c) => {
     const x = c as Partial<ChangeRecord> & ChangeRecord;
     return {
@@ -53,5 +53,9 @@ export function migrateState(input: EngagementState): EngagementState {
     templateSnapshots: (s.templateSnapshots as EngagementState['templateSnapshots']) ?? {},
     importQueue: (s.importQueue as EngagementState['importQueue']) ?? [],
     lastPropagation: (s.lastPropagation as EngagementState['lastPropagation']) ?? null,
+    aiGenerations: (s.aiGenerations as EngagementState['aiGenerations']) ?? [],
+    roleSuggestions: (s.roleSuggestions as EngagementState['roleSuggestions']) ?? [],
+    changePacks: (s.changePacks as EngagementState['changePacks']) ?? [],
+    aiLog: (s.aiLog as EngagementState['aiLog']) ?? [],
   };
 }

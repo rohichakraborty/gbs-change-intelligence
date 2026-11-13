@@ -8,7 +8,7 @@ import {
 import { nowIso, uid } from './util';
 import type { AudienceRec } from '../engine/audience';
 
-export const SCHEMA_VERSION = 2;
+export const SCHEMA_VERSION = 3;
 
 export const DEFAULT_GOVERNANCE: { title: string; role: string | null }[] = [
   { title: 'Executive Sponsor', role: 'cr_ceo' },
@@ -84,6 +84,7 @@ export function createBlankState(name = 'New engagement'): EngagementState {
     framework: JSON.parse(JSON.stringify(DEFAULT_FRAMEWORK)), channels: CHANNEL_LIBRARY.map((c) => ({ ...c, attrs: { ...c.attrs } })),
     comms: [], artifacts: [], kt: [], audit: [], dismissedSuggestions: {}, counters: { change: 0, comm: 0, artifact: 0 },
     changeAssessments: {}, templateSnapshots: {}, importQueue: [], lastPropagation: null,
+    aiGenerations: [], roleSuggestions: [], changePacks: [], aiLog: [],
   };
 }
 

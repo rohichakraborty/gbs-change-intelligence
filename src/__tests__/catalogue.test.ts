@@ -191,7 +191,8 @@ describe('Existing data (T12) and persistence shape (T16)', () => {
       owner: '', operationalImpact: '', behaviouralImpact: '', dependencies: '', assumptions: '', evidence: '', status: 'confirmed' });
     for (const c of changes) for (const k of ['source', 'templateId', 'templateVersion', 'active', 'functionTags', 'processTags', 'entities', 'clarificationAnswers', 'scopeOverrides', 'customDescription', 'defaultsReviewed', 'selectedAt', 'lastModifiedAt']) if (c.id === 'old1') delete c[k];
     const m = migrateState(v1 as unknown as EngagementState);
-    expect(m.schemaVersion).toBe(2);
+    expect(m.schemaVersion).toBe(3);
+    expect(m.aiGenerations).toEqual([]); expect(m.roleSuggestions).toEqual([]); expect(m.changePacks).toEqual([]);
     const old = m.changes.find((c) => c.id === 'old1')!;
     expect(old).toMatchObject({ source: 'custom', active: true, functionTags: ['Finance & Accounting'] });
     const d = derive(m);

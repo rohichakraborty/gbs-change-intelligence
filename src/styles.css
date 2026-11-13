@@ -365,3 +365,8 @@ ul.clean li { margin: 2px 0; }
   .kv { grid-template-columns: 100px minmax(0, 1fr); }
 }
 @media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; } }
+
+/* AI generation */
+@keyframes gbs-spin { to { transform: rotate(360deg); } }
+.spin { animation: gbs-spin 0.9s linear infinite; }
+@media (prefers-reduced-motion: reduce) { .spin { animation: none; } }

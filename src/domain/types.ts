@@ -2,6 +2,7 @@
 // GBS Change Intelligence — canonical domain model (single source of truth).
 // Every matrix, plan, and artifact in the app is derived from these records.
 // ---------------------------------------------------------------------------
+import type { AIRole, ChangeTemplate } from '../catalogue/types';
 
 export type ID = string;
 export type ISODate = string; // yyyy-mm-dd
@@ -491,6 +492,89 @@ export interface EngagementState {
   importQueue: ImportRow[];
   /** Summary of the last selection change's downstream effect. */
   lastPropagation: PropagationSummary | null;
+  // ---- schema v3: AI-generated change identification ----
+  aiGenerations: AIGeneration[];
+  /** AI-suggested stakeholder roles and how each maps to the Stakeholder Register. */
+  roleSuggestions: RoleSuggestion[];
+  /** Engagement-private reusable change packs (published copies go to the shared library). */
+  changePacks: ChangePack[];
+  /** Record of every AI request made for this engagement (evidence, troubleshooting). */
+  aiLog: AILogEntry[];
+}
+
+export type AIDim = 'OM' | 'PR' | 'OS' | 'TE' | 'IM';
+
+export interface AIStep {
+  key: 'roles' | AIDim;
+  status: 'pending' | 'running' | 'ok' | 'failed';
+  attempts: number;
+  valid: number;
+  rejected: { title: string; reason: string }[];
+  duplicates: number;
+  error: string | null;
+  at: string | null;
+}
+
+export interface AICandidate {
+  id: string; // template id, e.g. AI-7KQ2-OM-003
+  dim: AIDim;
+  status: 'candidate' | 'removed';
+  edited: boolean;
+  template: ChangeTemplate;
+}
+
+export interface AIGeneration {
+  id: string;
+  function: string;
+  functionDescription: string;
+  processes: string[];
+  technologies: string[];
+  createdAt: string;
+  provider: string;
+  model: string;
+  status: 'running' | 'complete' | 'partial' | 'failed';
+  interpretation: string;
+  clarityWarning: string | null;
+  steps: AIStep[];
+  roles: AIRole[];
+  candidates: AICandidate[];
+}
+
+export interface RoleSuggestion {
+  key: string;
+  role: string;
+  archetype: Archetype;
+  functionName: string;
+  functionSpecific: boolean;
+  description: string;
+  status: 'proposed' | 'mapped' | 'added' | 'rejected';
+  stakeholderId: string | null;
+  autoMatched: boolean;
+  generationId: string | null;
+}
+
+export interface ChangePack {
+  id: string;
+  name: string;
+  function: string;
+  version: number;
+  status: 'private' | 'published';
+  createdAt: string;
+  updatedAt: string;
+  templates: ChangeTemplate[];
+  publishedAt: string | null;
+}
+
+export interface AILogEntry {
+  at: string;
+  provider: string;
+  model: string;
+  purpose: string;
+  function: string;
+  ok: boolean;
+  attempts: number;
+  ms: number;
+  error: string | null;
 }
 
 export interface ChangeLevelDecision {

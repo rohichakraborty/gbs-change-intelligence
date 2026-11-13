@@ -9,9 +9,12 @@
     "build:single": "tsc --noEmit && vite build --mode single",
     "preview": "vite preview --host 0.0.0.0 --port 4173",
     "test": "vitest run",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "serve": "node server/index.mjs",
+    "test:e2e": "node e2e/change-identification.e2e.cjs && node e2e/ai-generation.e2e.cjs"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^1.8.0",
     "docx": "^9.0.2",
     "exceljs": "^4.4.0",
     "immer": "^10.1.1",

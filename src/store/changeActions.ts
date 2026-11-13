@@ -8,11 +8,21 @@ import { derive } from '../engine/derive';
 import { classOfHit } from '../engine/impact';
 import { instanceFromTemplate, matchTemplates } from '../catalogue/instance';
 import { getCatalogueOverlay, getLatestTemplate, getTemplate, latestVersionNumber, setCatalogueOverlay } from '../catalogue/registry';
+import { ensureRoleSuggestions } from './roleRegister';
 import type { ChangeTemplate } from '../catalogue/types';
 import { useApp } from './store';
 
 const app = () => useApp.getState();
 const cur = () => app().current!;
+
+/** A selectable template: shared library, this engagement's AI candidates, or its private change packs. */
+export function resolveSelectable(s: EngagementState, id: string): ChangeTemplate | undefined {
+  const lib = getLatestTemplate(id);
+  if (lib) return lib;
+  for (const g of s.aiGenerations ?? []) { const c = g.candidates.find((x) => x.id === id); if (c) return c.template; }
+  for (const p of s.changePacks ?? []) { const t = p.templates.find((x) => x.templateId === id); if (t) return t; }
+  return undefined;
+}
 
 // ----------------------------- Propagation summary ---------------------------
 
@@ -63,9 +73,10 @@ export function setTemplatesSelected(templateIds: string[], on: boolean): { adde
         const existing = d.changes.find((c) => c.templateId === id);
         if (on) {
           if (existing) { existing.active = true; existing.lastModifiedAt = nowIso(); res.reactivated++; continue; }
-          const t = getLatestTemplate(id);
+          const t = resolveSelectable(d as EngagementState, id);
           if (!t) continue;
-          if (t.origin === 'custom' || t.templateVersion > 1) d.templateSnapshots[`${t.templateId}@${t.templateVersion}`] = JSON.parse(JSON.stringify(t));
+          if (t.origin !== 'builtin' || t.templateVersion > 1) d.templateSnapshots[`${t.templateId}@${t.templateVersion}`] = JSON.parse(JSON.stringify(t));
+          if (t.aiRoles?.length) ensureRoleSuggestions(d as EngagementState, t.aiRoles, t.functionTags.find((f) => f !== 'Enterprise') ?? '', t.provenance?.generationId ?? null);
           d.changes.push(instanceFromTemplate(d as EngagementState, t, nextChangeCode(d as EngagementState)));
           res.added++;
         } else {
